@@ -1,0 +1,9 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--font-geist-sans), "Hiragino Sans", "Noto Sans JP", "Yu Gothic", sans-serif;
+}
+
+body {
+  color: #1e293b;
+}

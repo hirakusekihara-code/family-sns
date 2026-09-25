@@ -1,0 +1,79 @@
+# Family SNS（家族専用SNS プロトタイプ）
+
+Next.js (App Router) + Tailwind CSS + Lucide React で作る、家族専用SNSのプロトタイプです。
+今はデータベースを使わず、擬似データ（Mockデータ）で動きます。
+
+## 画面構成
+
+| タブ | URL | 内容 |
+| --- | --- | --- |
+| タイムライン | `/` | 家族の投稿・コメント・リアクション |
+| マップ | `/map` | 家族の現在地・スポットと本日の予定 |
+| カレンダー | `/calendar` | 家族の予定（色分け・フィルター・登録/編集） |
+| チャット | `/chat` | 家族グループチャット・個別DM |
+
+## 自分のパソコンで動かす手順
+
+### 1. Node.js をインストール（初回のみ）
+
+https://nodejs.org/ から **LTS版** をダウンロードしてインストールします。
+ターミナル（Mac は「ターミナル」、Windows は「PowerShell」）で次を実行し、バージョンが表示されればOKです。
+
+```bash
+node -v
+npm -v
+```
+
+### 2. プロジェクトを取得
+
+```bash
+git clone https://github.com/hirakusekihara-code/family-sns.git
+cd family-sns
+git checkout claude/family-sns-app-prototype-5tqw0k
+```
+
+### 3. 必要なライブラリをインストール（初回のみ）
+
+```bash
+npm install
+```
+
+### 4. ローカルサーバーを起動
+
+```bash
+npm run dev
+```
+
+`Ready` と表示されたら、ブラウザで http://localhost:3000 を開きます。
+止めるときはターミナルで `Ctrl + C` を押します。
+
+### 5. スマホ表示で確認するコツ
+
+- **PCのブラウザで確認**：Chrome で `F12`（Mac は `Cmd + Option + I`）→ 左上のスマホアイコン（デバイスツールバー）をクリックすると、iPhone などの画面サイズで表示できます。
+- **実機のスマホで確認**：PCとスマホを同じWi-Fiにつなぎ、`npm run dev` の表示に出る `Network: http://192.168.x.x:3000` をスマホのブラウザで開きます。
+
+## フォルダ構成
+
+```
+src/
+├── app/                  # 画面（ページ）。フォルダ名がそのままURLになります
+│   ├── layout.tsx        # 全画面共通の枠（スマホ幅の枠＋ボトムナビ）
+│   ├── page.tsx          # タイムライン（/）
+│   ├── map/page.tsx      # マップ（/map）
+│   ├── calendar/page.tsx # カレンダー（/calendar）
+│   └── chat/page.tsx     # チャット（/chat）
+├── components/           # 複数の画面で使い回す部品
+│   ├── BottomNav.tsx     # 画面下のタブナビゲーション
+│   ├── PageHeader.tsx    # 画面上部のタイトル
+│   └── ComingSoon.tsx    # 未実装画面の仮表示
+└── lib/
+    └── mockData.ts       # 擬似データ（家族メンバーなど）
+```
+
+## よく使うコマンド
+
+| コマンド | 説明 |
+| --- | --- |
+| `npm run dev` | 開発用サーバーを起動（保存すると自動で画面が更新されます） |
+| `npm run build` | 本番用にビルド（エラーがないかの確認にも使えます） |
+| `npm run lint` | コードの書き方チェック |
