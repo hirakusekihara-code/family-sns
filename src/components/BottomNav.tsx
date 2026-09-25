@@ -23,7 +23,7 @@ export default function BottomNav() {
             <li key={href}>
               <Link
                 href={href}
-                className={`flex flex-col items-center gap-1 py-2 text-[11px] font-medium transition-colors ${
+                className={`flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors ${
                   isActive ? "text-indigo-600" : "text-slate-400 hover:text-slate-600"
                 }`}
               >
