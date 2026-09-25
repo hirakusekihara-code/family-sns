@@ -4,7 +4,6 @@ import { useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { createId, currentUserId, familyMembers, getMember } from "@/lib/mockData";
 import {
-  buildMockEvents,
   categories,
   parseDateKey,
   shiftMonth,
@@ -14,6 +13,7 @@ import {
   type YearMonth,
 } from "@/lib/calendarData";
 import { useI18n } from "@/lib/i18n/useI18n";
+import { updateEvents, useEvents } from "@/lib/eventStore";
 import LanguageToggle from "@/components/common/LanguageToggle";
 import Avatar from "@/components/timeline/Avatar";
 import MonthGrid from "./MonthGrid";
@@ -31,11 +31,11 @@ function sortEvents(a: CalendarEvent, b: CalendarEvent) {
   return a.start.localeCompare(b.start);
 }
 
-// カレンダー画面全体。予定はこの画面の中だけで保持します（再読み込みで元に戻ります）
+// カレンダー画面全体。予定はマップ画面と共有します（再読み込みで元に戻ります）
 export default function CalendarApp() {
   const { t, memberName, monthTitle, formatDate } = useI18n();
   const [today] = useState(() => toDateKey(new Date()));
-  const [events, setEvents] = useState<CalendarEvent[]>(() => buildMockEvents(today));
+  const events = useEvents(); // マップ画面と共有
   const [viewerId, setViewerId] = useState(currentUserId);
   const [tab, setTab] = useState<Tab>("calendar");
   const [filter, setFilter] = useState<Filter>("all");
@@ -95,7 +95,7 @@ export default function CalendarApp() {
   }
 
   function saveEvent(event: CalendarEvent) {
-    setEvents((prev) =>
+    updateEvents((prev) =>
       prev.some((e) => e.id === event.id) ? prev.map((e) => (e.id === event.id ? event : e)) : [...prev, event],
     );
     setSelected(event.date);
@@ -105,7 +105,7 @@ export default function CalendarApp() {
   }
 
   function deleteEvent(id: string) {
-    setEvents((prev) => prev.filter((e) => e.id !== id));
+    updateEvents((prev) => prev.filter((e) => e.id !== id));
     setEditor(null);
   }
 
