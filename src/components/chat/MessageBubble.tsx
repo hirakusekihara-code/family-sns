@@ -1,5 +1,6 @@
 import { Phone, PhoneMissed, Video } from "lucide-react";
 import { formatDuration, type ChatMessage } from "@/lib/chatData";
+import { useI18n } from "@/lib/i18n/useI18n";
 
 type Props = {
   message: ChatMessage;
@@ -9,6 +10,7 @@ type Props = {
 
 // 吹き出し1つ分（テキスト・写真・通話履歴）
 export default function MessageBubble({ message, isMine, onCallAgain }: Props) {
+  const { t } = useI18n();
   if (message.kind === "photo") {
     return (
       <div
@@ -35,10 +37,10 @@ export default function MessageBubble({ message, isMine, onCallAgain }: Props) {
           </span>
           <div>
             <p className="text-sm font-semibold text-slate-900">
-              {message.callType === "video" ? "ビデオ通話" : "音声通話"}
+              {t(message.callType === "video" ? "chat.videoCall" : "chat.voiceCall")}
             </p>
             <p className="text-xs text-slate-500">
-              {duration === null ? "応答なし" : formatDuration(duration)}
+              {duration === null ? t("chat.noAnswer") : formatDuration(duration)}
             </p>
           </div>
         </div>
@@ -47,7 +49,7 @@ export default function MessageBubble({ message, isMine, onCallAgain }: Props) {
           onClick={onCallAgain}
           className="mt-2 w-full rounded-xl bg-white py-1.5 text-sm font-semibold text-slate-800"
         >
-          もう一度かける
+          {t("chat.callAgain")}
         </button>
       </div>
     );

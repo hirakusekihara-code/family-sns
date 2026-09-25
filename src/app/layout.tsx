@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import BottomNav from "@/components/BottomNav";
+import HtmlLang from "@/components/common/HtmlLang";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -10,7 +11,7 @@ const geistSans = Geist({
 
 export const metadata: Metadata = {
   title: "Family SNS",
-  description: "家族専用のSNSアプリ（プロトタイプ）",
+  description: "家族専用のSNSアプリ（プロトタイプ） / A private social app for families (prototype)",
 };
 
 // スマートフォンで見やすくするための設定
@@ -29,6 +30,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           {children}
         </div>
         <BottomNav />
+        <HtmlLang />
       </body>
     </html>
   );

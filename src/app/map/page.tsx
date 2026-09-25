@@ -5,14 +5,8 @@ import ComingSoon from "@/components/ComingSoon";
 export default function MapPage() {
   return (
     <>
-      <PageHeader title="マップ" icon={Map} />
-      <ComingSoon
-        features={[
-          "簡易的な地図UI",
-          "家族メンバーの現在地アイコン",
-          "学校・職場などのスポットと本日の予定のポップアップ",
-        ]}
-      />
+      <PageHeader titleKey="nav.map" icon={<Map className="h-5 w-5 text-indigo-600" />} />
+      <ComingSoon featureKeys={["soon.map.1", "soon.map.2", "soon.map.3"]} />
     </>
   );
 }

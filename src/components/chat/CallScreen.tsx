@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Mic, MicOff, PhoneOff, Video, VideoOff, Volume2, VolumeX } from "lucide-react";
 import { currentUserId, getMember } from "@/lib/mockData";
 import { formatDuration, type CallType } from "@/lib/chatData";
+import { useI18n } from "@/lib/i18n/useI18n";
 import Avatar from "@/components/timeline/Avatar";
 
 type Props = {
@@ -17,6 +18,7 @@ const ANSWER_DELAY_MS = 2500; // 相手が応答するまでの擬似的な待�
 
 // 通話画面（プロトタイプ：相手側は擬似表示、自分のカメラ映像は本物）
 export default function CallScreen({ callType, title, memberIds, onEnd }: Props) {
+  const { t } = useI18n();
   const [connected, setConnected] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [muted, setMuted] = useState(false);
@@ -74,7 +76,7 @@ export default function CallScreen({ callType, title, memberIds, onEnd }: Props)
     setCameraOn(next);
   }
 
-  const status = connected ? formatDuration(seconds) : "呼び出し中…";
+  const status = connected ? formatDuration(seconds) : t("call.calling");
   const showSelfVideo = isVideo && cameraOn && cameraState === "ready";
 
   // <video> が表示されるたびにカメラ映像をつなぐ
@@ -99,7 +101,7 @@ export default function CallScreen({ callType, title, memberIds, onEnd }: Props)
         <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-center">
           <Avatar member={me} size="md" />
           <span className="px-1 text-[10px] text-white/70">
-            {!cameraOn ? "カメラオフ" : cameraState === "unavailable" ? "カメラを利用できません" : "起動中…"}
+            {!cameraOn ? t("call.cameraOff") : cameraState === "unavailable" ? t("call.cameraUnavailable") : t("call.starting")}
           </span>
         </div>
       )}
@@ -121,7 +123,7 @@ export default function CallScreen({ callType, title, memberIds, onEnd }: Props)
             ))}
             <div className="relative overflow-hidden rounded-2xl">
               {selfTile}
-              <span className="absolute bottom-2 left-2 rounded-full bg-black/40 px-2 py-0.5 text-xs">あなた</span>
+              <span className="absolute bottom-2 left-2 rounded-full bg-black/40 px-2 py-0.5 text-xs">{t("common.you")}</span>
             </div>
           </div>
         ) : (
@@ -135,7 +137,7 @@ export default function CallScreen({ callType, title, memberIds, onEnd }: Props)
                 </span>
               ))}
             </div>
-            {isVideo && connected && <p className="text-xs text-white/50">（相手の映像はプロトタイプのため表示されません）</p>}
+            {isVideo && connected && <p className="px-6 text-center text-xs text-white/50">{t("call.remoteNote")}</p>}
           </div>
         )}
 
@@ -143,7 +145,7 @@ export default function CallScreen({ callType, title, memberIds, onEnd }: Props)
         <div className="absolute inset-x-0 top-0 bg-gradient-to-b from-black/40 to-transparent px-4 pb-6 pt-8 text-center">
           <p className="text-xl font-semibold">{title}</p>
           <p className="mt-1 text-sm text-white/70">
-            {isVideo ? "ビデオ通話" : "音声通話"} · {status}
+            {t(isVideo ? "chat.videoCall" : "chat.voiceCall")} · {status}
           </p>
         </div>
 
@@ -157,22 +159,22 @@ export default function CallScreen({ callType, title, memberIds, onEnd }: Props)
 
       {/* 操作ボタン */}
       <div className="flex items-center justify-around rounded-t-3xl bg-black/40 px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-5">
-        <CallButton label={muted ? "ミュート解除" : "ミュート"} active={muted} onClick={() => setMuted((v) => !v)}>
+        <CallButton label={t(muted ? "call.unmute" : "call.mute")} active={muted} onClick={() => setMuted((v) => !v)}>
           {muted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
         </CallButton>
         {isVideo ? (
-          <CallButton label={cameraOn ? "カメラオフ" : "カメラオン"} active={!cameraOn} onClick={toggleCamera}>
+          <CallButton label={t(cameraOn ? "call.cameraOff" : "call.cameraOn")} active={!cameraOn} onClick={toggleCamera}>
             {cameraOn ? <Video className="h-6 w-6" /> : <VideoOff className="h-6 w-6" />}
           </CallButton>
         ) : (
-          <CallButton label="スピーカー" active={!speakerOn} onClick={() => setSpeakerOn((v) => !v)}>
+          <CallButton label={t("call.speaker")} active={!speakerOn} onClick={() => setSpeakerOn((v) => !v)}>
             {speakerOn ? <Volume2 className="h-6 w-6" /> : <VolumeX className="h-6 w-6" />}
           </CallButton>
         )}
         <button
           type="button"
           onClick={() => onEnd(connected ? seconds : null)}
-          aria-label="通話を終了"
+          aria-label={t("call.end")}
           className="flex h-14 w-14 items-center justify-center rounded-full bg-rose-500 transition active:scale-95"
         >
           <PhoneOff className="h-6 w-6" />

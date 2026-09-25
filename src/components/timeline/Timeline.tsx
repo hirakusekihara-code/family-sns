@@ -15,7 +15,7 @@ export default function Timeline() {
       authorId,
       text,
       photo,
-      timeLabel: "たった今",
+      minutesAgo: 0,
       reactions: { like: 0, happy: 0, sad: 0 },
       myReactions: [],
       comments: [],
@@ -46,7 +46,7 @@ export default function Timeline() {
               ...p,
               comments: [
                 ...p.comments,
-                { id: createId("comment"), authorId: currentUserId, text, timeLabel: "たった今" },
+                { id: createId("comment"), authorId: currentUserId, text, minutesAgo: 0 },
               ],
             }
           : p,

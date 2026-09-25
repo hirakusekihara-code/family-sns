@@ -3,7 +3,8 @@
 import { useEffect, useRef } from "react";
 import { ChevronLeft, Phone, Video } from "lucide-react";
 import { currentUserId, getMember } from "@/lib/mockData";
-import type { CallType, ChatMessage, Conversation } from "@/lib/chatData";
+import { conversationTitle, type CallType, type ChatMessage, type Conversation } from "@/lib/chatData";
+import { useI18n } from "@/lib/i18n/useI18n";
 import Avatar from "@/components/timeline/Avatar";
 import MessageBubble from "./MessageBubble";
 import MessageComposer from "./MessageComposer";
@@ -29,6 +30,8 @@ export default function ChatThread({
   onCall,
   onBack,
 }: Props) {
+  const i18n = useI18n();
+  const { t, memberName, formatChatTime } = i18n;
   const bottomRef = useRef<HTMLDivElement>(null);
   const isGroup = conversation.type === "group";
   const members = conversation.memberIds.map(getMember);
@@ -43,7 +46,7 @@ export default function ChatThread({
       {/* トークのヘッダー：相手の名前と通話ボタン */}
       <div className="flex items-center gap-3 border-b border-slate-100 px-3 py-2">
         {onBack && (
-          <button type="button" onClick={onBack} aria-label="戻る" className="-ml-1 p-1">
+          <button type="button" onClick={onBack} aria-label={t("chat.back")} className="-ml-1 p-1">
             <ChevronLeft className="h-7 w-7 text-slate-800" />
           </button>
         )}
@@ -60,15 +63,15 @@ export default function ChatThread({
           <Avatar member={members[0]} />
         )}
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[15px] font-semibold text-slate-900">{conversation.title}</p>
+          <p className="truncate text-[15px] font-semibold text-slate-900">{conversationTitle(conversation, i18n)}</p>
           <p className="truncate text-xs text-slate-500">
-            {isGroup ? `${members.length + 1}人のメンバー` : "オンライン"}
+            {isGroup ? t("chat.members", { n: members.length + 1 }) : t("chat.online")}
           </p>
         </div>
-        <button type="button" onClick={() => onCall("voice")} aria-label="音声通話" className="p-2">
+        <button type="button" onClick={() => onCall("voice")} aria-label={t("chat.voiceCall")} className="p-2">
           <Phone className="h-6 w-6 text-slate-800" />
         </button>
-        <button type="button" onClick={() => onCall("video")} aria-label="ビデオ通話" className="p-2">
+        <button type="button" onClick={() => onCall("video")} aria-label={t("chat.videoCall")} className="p-2">
           <Video className="h-7 w-7 text-slate-800" />
         </button>
       </div>
@@ -86,9 +89,9 @@ export default function ChatThread({
 
           return (
             <div key={msg.id}>
-              {showTime && <p className="my-3 text-center text-xs text-slate-400">{msg.time}</p>}
+              {showTime && <p className="my-3 text-center text-xs text-slate-400">{formatChatTime(msg.time)}</p>}
               {isGroup && !isMine && isFirstOfRun && (
-                <p className="mb-0.5 ml-12 text-xs text-slate-500">{sender.name}</p>
+                <p className="mb-0.5 ml-12 text-xs text-slate-500">{memberName(sender)}</p>
               )}
               <div className={`mb-1 flex items-end gap-2 ${isMine ? "justify-end" : ""}`}>
                 {!isMine && (
@@ -122,7 +125,7 @@ export default function ChatThread({
         {typingMemberId && (
           <div className="mb-1 flex items-end gap-2">
             <Avatar member={getMember(typingMemberId)} size="sm" />
-            <div className="flex gap-1 rounded-3xl bg-slate-100 px-4 py-3" aria-label="入力中">
+            <div className="flex gap-1 rounded-3xl bg-slate-100 px-4 py-3" aria-label={t("chat.typing")}>
               {[0, 150, 300].map((delay) => (
                 <span
                   key={delay}

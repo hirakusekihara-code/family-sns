@@ -1,6 +1,7 @@
 import { Search } from "lucide-react";
 import { getMember } from "@/lib/mockData";
-import { messagePreview, type ChatMessage, type Conversation } from "@/lib/chatData";
+import { conversationTitle, messagePreview, type ChatMessage, type Conversation } from "@/lib/chatData";
+import { useI18n } from "@/lib/i18n/useI18n";
 import Avatar from "@/components/timeline/Avatar";
 
 type Props = {
@@ -11,12 +12,14 @@ type Props = {
 
 // インスタのDM一覧風のリスト
 export default function DmList({ conversations, messages, onOpen }: Props) {
+  const i18n = useI18n();
+  const { t, memberName, formatChatTime } = i18n;
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="px-4 pt-3">
         <div className="flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-slate-400">
           <Search className="h-4 w-4" />
-          <span className="text-sm">検索</span>
+          <span className="text-sm">{t("chat.search")}</span>
         </div>
       </div>
 
@@ -37,13 +40,13 @@ export default function DmList({ conversations, messages, onOpen }: Props) {
                 </span>
                 <span className="absolute bottom-0.5 right-0.5 h-4 w-4 rounded-full border-2 border-white bg-green-500" />
               </span>
-              <span className="text-xs text-slate-600">{member.name}</span>
+              <span className="text-xs text-slate-600">{memberName(member)}</span>
             </button>
           );
         })}
       </div>
 
-      <p className="px-4 pb-1 text-[15px] font-semibold text-slate-900">メッセージ</p>
+      <p className="px-4 pb-1 text-[15px] font-semibold text-slate-900">{t("chat.messages")}</p>
       <ul>
         {conversations.map((c) => {
           const member = getMember(c.memberIds[0]);
@@ -60,16 +63,16 @@ export default function DmList({ conversations, messages, onOpen }: Props) {
                 <Avatar member={member} size="lg" />
                 <span className="min-w-0 flex-1">
                   <span className={`block text-[15px] ${unread ? "font-semibold" : ""} text-slate-900`}>
-                    {c.title}
+                    {conversationTitle(c, i18n)}
                   </span>
                   <span
                     className={`block truncate text-sm ${unread ? "font-semibold text-slate-900" : "text-slate-500"}`}
                   >
-                    {unread && c.unread > 1 ? `${c.unread}件の新着メッセージ` : messagePreview(last)}
-                    <span className="font-normal text-slate-400"> · {last?.time}</span>
+                    {unread && c.unread > 1 ? t("chat.newMessages", { n: c.unread }) : messagePreview(last, i18n)}
+                    <span className="font-normal text-slate-400"> · {last && formatChatTime(last.time)}</span>
                   </span>
                 </span>
-                {unread && <span className="h-2.5 w-2.5 rounded-full bg-indigo-600" aria-label="未読" />}
+                {unread && <span className="h-2.5 w-2.5 rounded-full bg-indigo-600" aria-label={t("chat.unread")} />}
               </button>
             </li>
           );

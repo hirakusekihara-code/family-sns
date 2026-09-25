@@ -1,12 +1,13 @@
 // チャット用の擬似データ（Mockデータ）
-import { currentUserId, familyMembers } from "./mockData";
+import { currentUserId, familyMembers, getMember } from "./mockData";
+import type { I18n, Lang } from "./i18n/useI18n";
 
 export type CallType = "voice" | "video";
 
 export type ChatMessage = {
   id: string;
   senderId: string;
-  time: string; // 「18:02」などの表示用テキスト
+  time: string; // 「18:02」などの時刻（"yesterday" は言語に合わせて「昨日」「Yesterday」と表示）
   liked?: boolean; // ダブルタップで ❤️
 } & (
   | { kind: "text"; text: string }
@@ -16,8 +17,7 @@ export type ChatMessage = {
 
 export type Conversation = {
   id: string;
-  type: "group" | "dm";
-  title: string;
+  type: "group" | "dm"; // 表示名は conversationTitle() で言語に合わせて作る
   memberIds: string[]; // 自分以外の参加者
   unread: number;
 };
@@ -28,7 +28,6 @@ export const initialConversations: Conversation[] = [
   {
     id: GROUP_ID,
     type: "group",
-    title: "家族グループ",
     memberIds: familyMembers.filter((m) => m.id !== currentUserId).map((m) => m.id),
     unread: 0,
   },
@@ -37,7 +36,6 @@ export const initialConversations: Conversation[] = [
     .map((m) => ({
       id: `dm-${m.id}`,
       type: "dm" as const,
-      title: m.name,
       memberIds: [m.id],
       unread: m.id === "hana" ? 2 : 0,
     })),
@@ -54,9 +52,9 @@ export const initialMessages: Record<string, ChatMessage[]> = {
     { id: "g7", senderId: "papa", time: "16:20", kind: "text", text: "今日の夕飯なに？🍽️" },
   ],
   "dm-papa": [
-    { id: "d1", senderId: "papa", time: "昨日", kind: "text", text: "帰りに牛乳買ってくるね" },
-    { id: "d2", senderId: "mama", time: "昨日", kind: "text", text: "ありがとう！助かる" },
-    { id: "d3", senderId: "papa", time: "昨日", kind: "call", callType: "voice", durationSec: 72 },
+    { id: "d1", senderId: "papa", time: "yesterday", kind: "text", text: "帰りに牛乳買ってくるね" },
+    { id: "d2", senderId: "mama", time: "yesterday", kind: "text", text: "ありがとう！助かる" },
+    { id: "d3", senderId: "papa", time: "yesterday", kind: "call", callType: "voice", durationSec: 72 },
   ],
   "dm-hana": [
     { id: "d4", senderId: "hana", time: "15:50", kind: "text", text: "ママ、明日の体操服洗ってある？" },
@@ -69,12 +67,24 @@ export const initialMessages: Record<string, ChatMessage[]> = {
 };
 
 // 自動返信用のセリフ（プロトタイプで「受信」を体験するため）
-export const autoReplies: Record<string, string[]> = {
-  papa: ["了解！", "今から帰るね🚃", "いいね👍", "あとで電話するね"],
-  mama: ["はーい", "わかったよ", "ありがとう😊"],
-  hana: ["わかった〜", "えー！まじで？😂", "ありがとう！", "今部活中！あとでね"],
-  sora: ["OK!", "おなかすいた🍙", "りょ", "あとでね〜"],
+export const autoReplies: Record<Lang, Record<string, string[]>> = {
+  ja: {
+    papa: ["了解！", "今から帰るね🚃", "いいね👍", "あとで電話するね"],
+    mama: ["はーい", "わかったよ", "ありがとう😊"],
+    hana: ["わかった〜", "えー！まじで？😂", "ありがとう！", "今部活中！あとでね"],
+    sora: ["OK!", "おなかすいた🍙", "りょ", "あとでね〜"],
+  },
+  en: {
+    papa: ["Got it!", "Heading home now 🚃", "Nice 👍", "I'll call you later"],
+    mama: ["Okay!", "Sounds good", "Thanks 😊"],
+    hana: ["Okay~", "No way! 😂", "Thank you!", "At practice now, talk later!"],
+    sora: ["OK!", "I'm hungry 🍙", "Yep", "Later~"],
+  },
 };
+
+export function conversationTitle(c: Conversation, { t, memberName }: I18n): string {
+  return c.type === "group" ? t("chat.groupName") : memberName(getMember(c.memberIds[0]));
+}
 
 export function formatDuration(sec: number) {
   const m = Math.floor(sec / 60);
@@ -87,12 +97,12 @@ export function nowTime() {
   return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-export function messagePreview(msg: ChatMessage | undefined) {
+export function messagePreview(msg: ChatMessage | undefined, { t }: I18n) {
   if (!msg) return "";
   if (msg.kind === "text") return msg.text;
-  if (msg.kind === "photo") return "写真を送信しました";
-  const label = msg.callType === "video" ? "ビデオ通話" : "音声通話";
-  return msg.durationSec === null ? `${label}（応答なし）` : `${label} ${formatDuration(msg.durationSec)}`;
+  if (msg.kind === "photo") return t("chat.photoSent");
+  const label = t(msg.callType === "video" ? "chat.videoCall" : "chat.voiceCall");
+  return msg.durationSec === null ? `${label} (${t("chat.noAnswer")})` : `${label} ${formatDuration(msg.durationSec)}`;
 }
 
 // 配列からランダムに1つ選ぶ（自動返信などで使用）

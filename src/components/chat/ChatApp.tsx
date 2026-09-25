@@ -5,6 +5,7 @@ import { createId, currentUserId, photoOptions } from "@/lib/mockData";
 import {
   GROUP_ID,
   autoReplies,
+  conversationTitle,
   initialConversations,
   initialMessages,
   nowTime,
@@ -13,6 +14,8 @@ import {
   type ChatMessage,
   type Conversation,
 } from "@/lib/chatData";
+import { useI18n } from "@/lib/i18n/useI18n";
+import LanguageToggle from "@/components/common/LanguageToggle";
 import ChatThread from "./ChatThread";
 import DmList from "./DmList";
 import CallScreen from "./CallScreen";
@@ -22,6 +25,8 @@ type ActiveCall = { conversationId: string; callType: CallType };
 
 // チャット画面全体。メッセージはこの画面の中だけで保持します（再読み込みで元に戻ります）
 export default function ChatApp() {
+  const i18n = useI18n();
+  const { t, lang } = i18n;
   const [tab, setTab] = useState<Tab>("group");
   const [conversations, setConversations] = useState<Conversation[]>(initialConversations);
   const [messages, setMessages] = useState<Record<string, ChatMessage[]>>(initialMessages);
@@ -42,7 +47,7 @@ export default function ChatApp() {
   function scheduleReply(conversation: Conversation) {
     const memberIds = conversation.memberIds;
     const replierId = pickRandom(memberIds);
-    const lines = autoReplies[replierId] ?? ["👍"];
+    const lines = autoReplies[lang][replierId] ?? ["👍"];
     setTimeout(() => setTyping((t) => ({ ...t, [conversation.id]: replierId })), 600);
     setTimeout(() => {
       setTyping((t) => ({ ...t, [conversation.id]: null }));
@@ -114,12 +119,15 @@ export default function ChatApp() {
       {/* ボトムナビ（高さ 4rem）の上までを画面いっぱいに使う */}
       <div className="fixed inset-x-0 top-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] mx-auto flex max-w-md flex-col bg-white">
         <header className="border-b border-slate-100">
-          <h1 className="px-4 pt-3 text-xl font-bold text-slate-900">チャット</h1>
+          <div className="flex items-center justify-between px-4 pt-3">
+            <h1 className="text-xl font-bold text-slate-900">{t("chat.title")}</h1>
+            <LanguageToggle />
+          </div>
           <div className="mt-2 grid grid-cols-2">
             {(
               [
-                { id: "group", label: "家族グループ", badge: 0 },
-                { id: "dm", label: "DM", badge: dmUnread },
+                { id: "group", label: t("chat.tab.group"), badge: 0 },
+                { id: "dm", label: t("chat.tab.dm"), badge: dmUnread },
               ] as const
             ).map((t) => (
               <button
@@ -155,7 +163,7 @@ export default function ChatApp() {
       {call && callConversation && (
         <CallScreen
           callType={call.callType}
-          title={callConversation.title}
+          title={conversationTitle(callConversation, i18n)}
           memberIds={callConversation.memberIds}
           onEnd={endCall}
         />

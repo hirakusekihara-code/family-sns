@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ImagePlus, Send, X } from "lucide-react";
 import { familyMembers, getMember, photoOptions, type Post } from "@/lib/mockData";
+import { useI18n } from "@/lib/i18n/useI18n";
 import Avatar from "./Avatar";
 
 type Props = {
@@ -12,6 +13,7 @@ type Props = {
 
 // 新しい投稿を作るフォーム
 export default function PostComposer({ defaultAuthorId, onSubmit }: Props) {
+  const { t, memberName } = useI18n();
   const [authorId, setAuthorId] = useState(defaultAuthorId);
   const [text, setText] = useState("");
   const [photo, setPhoto] = useState<Post["photo"]>();
@@ -32,7 +34,7 @@ export default function PostComposer({ defaultAuthorId, onSubmit }: Props) {
     <form onSubmit={handleSubmit} className="space-y-3 rounded-2xl bg-white p-4 shadow-sm">
       {/* 誰として投稿するか選ぶ */}
       <div className="flex items-center gap-2">
-        <span className="text-xs text-slate-500">投稿者</span>
+        <span className="text-xs text-slate-500">{t("tl.poster")}</span>
         {familyMembers.map((m) => (
           <button
             key={m.id}
@@ -42,7 +44,7 @@ export default function PostComposer({ defaultAuthorId, onSubmit }: Props) {
               authorId === m.id ? `${m.color} text-white` : "bg-slate-100 text-slate-500"
             }`}
           >
-            {m.name}
+            {memberName(m)}
           </button>
         ))}
       </div>
@@ -52,7 +54,7 @@ export default function PostComposer({ defaultAuthorId, onSubmit }: Props) {
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="家族にシェアしよう…"
+          placeholder={t("tl.placeholder")}
           rows={2}
           className="flex-1 resize-none rounded-xl bg-slate-100 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-300"
         />
@@ -65,7 +67,7 @@ export default function PostComposer({ defaultAuthorId, onSubmit }: Props) {
             type="button"
             onClick={() => setPhoto(undefined)}
             className="absolute right-2 top-2 rounded-full bg-black/40 p-1 text-white"
-            aria-label="写真を外す"
+            aria-label={t("tl.removePhoto")}
           >
             <X className="h-4 w-4" />
           </button>
@@ -94,7 +96,7 @@ export default function PostComposer({ defaultAuthorId, onSubmit }: Props) {
           className="flex items-center gap-1 text-sm text-slate-500 hover:text-indigo-600"
         >
           <ImagePlus className="h-5 w-5" />
-          写真
+          {t("tl.photo")}
         </button>
         <button
           type="submit"
@@ -102,7 +104,7 @@ export default function PostComposer({ defaultAuthorId, onSubmit }: Props) {
           className="flex items-center gap-1 rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition disabled:bg-slate-300"
         >
           <Send className="h-4 w-4" />
-          投稿
+          {t("tl.post")}
         </button>
       </div>
     </form>

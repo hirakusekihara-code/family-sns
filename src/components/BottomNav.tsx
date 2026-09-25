@@ -3,21 +3,23 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Home, Map, CalendarDays, MessageCircle } from "lucide-react";
+import { useI18n } from "@/lib/i18n/useI18n";
 
 const tabs = [
-  { href: "/", label: "タイムライン", icon: Home },
-  { href: "/map", label: "マップ", icon: Map },
-  { href: "/calendar", label: "カレンダー", icon: CalendarDays },
-  { href: "/chat", label: "チャット", icon: MessageCircle },
-];
+  { href: "/", labelKey: "nav.timeline", icon: Home },
+  { href: "/map", labelKey: "nav.map", icon: Map },
+  { href: "/calendar", labelKey: "nav.calendar", icon: CalendarDays },
+  { href: "/chat", labelKey: "nav.chat", icon: MessageCircle },
+] as const;
 
 export default function BottomNav() {
   const pathname = usePathname();
+  const { t } = useI18n();
 
   return (
     <nav className="fixed bottom-0 left-1/2 z-50 w-full max-w-md -translate-x-1/2 border-t border-slate-200 bg-white/90 backdrop-blur pb-[env(safe-area-inset-bottom)]">
       <ul className="grid grid-cols-4">
-        {tabs.map(({ href, label, icon: Icon }) => {
+        {tabs.map(({ href, labelKey, icon: Icon }) => {
           const isActive = href === "/" ? pathname === "/" : pathname.startsWith(href);
           return (
             <li key={href}>
@@ -28,7 +30,7 @@ export default function BottomNav() {
                 }`}
               >
                 <Icon className="h-6 w-6" strokeWidth={isActive ? 2.5 : 2} />
-                {label}
+                {t(labelKey)}
               </Link>
             </li>
           );
