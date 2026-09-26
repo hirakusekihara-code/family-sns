@@ -1,36 +1,41 @@
 "use client";
 
 import { ArrowDownRight, ArrowUpRight, FileDown, Paperclip } from "lucide-react";
-import { getMember } from "@/lib/mockData";
 import {
+  findLedger,
   formatYen,
-  getLedger,
   inMonth,
   sumBy,
   toDateKey,
   transactionsOf,
-  visibleLedgers,
   type CalendarEvent,
+  type Ledger,
   type YearMonth,
 } from "@/lib/calendarData";
+import { useFamily } from "@/lib/family";
 import { useI18n } from "@/lib/i18n/useI18n";
 
 type Props = {
   events: CalendarEvent[];
-  viewerId: string;
+  ledgers: Ledger[]; // 見られる帳簿
+  isChild: boolean;
   cursor: YearMonth;
-  ledgerId: string;
+  ledgerId: string | null; // null = 見られる帳簿がない（親族）
   onLedgerChange: (id: string) => void;
   onOpen: (event: CalendarEvent) => void;
   onExportPl: () => void;
 };
 
 // 家計簿：帳簿ごとの月の収支・内訳・明細
-export default function MoneyView({ events, viewerId, cursor, ledgerId, onLedgerChange, onOpen, onExportPl }: Props) {
-  const { t, memberName, categoryLabel, ledgerName, formatDate } = useI18n();
-  const ledger = getLedger(ledgerId);
-  const options = visibleLedgers(viewerId);
-  const isChildViewer = getMember(viewerId).role === "child";
+export default function MoneyView({ events, ledgers, isChild, cursor, ledgerId, onLedgerChange, onOpen, onExportPl }: Props) {
+  const { t, categoryLabel, ledgerName, formatDate } = useI18n();
+  const family = useFamily();
+  if (!ledgerId || !family.ready) {
+    return <p className="m-4 rounded-2xl bg-white p-6 text-center text-sm text-slate-500 shadow-sm">{t("mv.noAccess")}</p>;
+  }
+  const ledger = findLedger(ledgers, ledgerId);
+  const options = ledgers;
+  const isChildViewer = isChild;
 
   const all = transactionsOf(events, ledger.id);
   const monthly = inMonth(all, cursor).sort((a, b) => (a.date === b.date ? 0 : a.date < b.date ? 1 : -1));
@@ -137,7 +142,7 @@ export default function MoneyView({ events, viewerId, cursor, ledgerId, onLedger
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm text-slate-900">{tx.title}</span>
                       <span className="flex items-center gap-1 text-xs text-slate-500">
-                        {categoryLabel(tx.money.category)} · {memberName(getMember(tx.assigneeId))}
+                        {categoryLabel(tx.money.category)} · {family.member(tx.assigneeId).name}
                         {tx.attachments.length > 0 && (
                           <>
                             <Paperclip className="ml-1 h-3 w-3" aria-hidden />

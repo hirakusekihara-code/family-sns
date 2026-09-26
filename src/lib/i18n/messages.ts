@@ -81,7 +81,7 @@ export const ja = {
   "setup.dbBody": "Supabase の「SQL Editor」で、リポジトリの supabase/schema.sql を実行してください。実行後にこの画面を再読み込みします。",
   "setup.errorTitle": "読み込みに失敗しました",
   "setup.retry": "もう一度読み込む",
-  "setup.tablesMissing": "データベースの追加の準備がまだです。Supabase の SQL Editor で supabase/02_timeline_chat.sql を実行してください",
+  "setup.tablesMissing": "データベースの追加の準備がまだです。Supabase の SQL Editor で、supabase フォルダーの SQL（02_timeline_chat.sql・03_calendar_map.sql）を実行してください",
 
   // プロフィール
   "pf.title": "プロフィール",
@@ -195,6 +195,15 @@ export const ja = {
   "map.locDenied": "位置情報の利用が許可されませんでした。ブラウザの設定を確認してください",
   "map.locUnavailable": "現在地を取得できませんでした",
   "map.locUnsupported": "このブラウザは位置情報に対応していません",
+  "map.planAt": "予定：{place}（{time}）",
+  "map.gpsShared": "GPSの位置：{ago}に共有",
+  "map.openMap": "地図で開く",
+  "map.shareOff": "位置情報の共有：オフ",
+  "map.noGps": "GPSの位置はまだ共有されていません",
+  "map.pinNote": "地図上の家族のアイコンは、今の予定の場所に表示しています",
+  "map.sharedDone": "家族に現在地を共有しました",
+  "map.shareOffNote": "位置情報の共有がオフのため、家族には共有されません（マイページのプロフィール編集で変更できます）",
+  "map.until": "〜{time}",
 
   // タイムライン
   "tl.poster": "投稿者",
@@ -298,6 +307,7 @@ export const ja = {
   "mv.noRecords": "この月の記録はありません",
   "mv.exportPl": "PLを出力（PDF）",
   "mv.childNote": "自分のお小遣い帳だけが表示されます",
+  "mv.noAccess": "家計簿は、保護者（父・母）とお子さま（息子・娘）が使えます",
 
   // 科目
   "cat.food": "食費",
@@ -426,7 +436,7 @@ export const en: Record<MessageKey, string> = {
   "setup.dbBody": "Run supabase/schema.sql from the repository in Supabase's SQL Editor, then reload this page.",
   "setup.errorTitle": "Couldn't load",
   "setup.retry": "Try again",
-  "setup.tablesMissing": "The database needs one more step. Run supabase/02_timeline_chat.sql in Supabase's SQL Editor",
+  "setup.tablesMissing": "The database needs one more step. Run the SQL files in the supabase folder (02_timeline_chat.sql, 03_calendar_map.sql) in Supabase's SQL Editor",
 
   "pf.title": "Profile",
   "pf.setupTitle": "Create your profile",
@@ -534,6 +544,15 @@ export const en: Record<MessageKey, string> = {
   "map.locDenied": "Location access was not allowed. Check your browser settings",
   "map.locUnavailable": "Couldn't get your location",
   "map.locUnsupported": "This browser doesn't support location",
+  "map.planAt": "Plan: {place} ({time})",
+  "map.gpsShared": "GPS location shared {ago}",
+  "map.openMap": "Open map",
+  "map.shareOff": "Location sharing: off",
+  "map.noGps": "No GPS location shared yet",
+  "map.pinNote": "Family icons on the map show where their current plans are",
+  "map.sharedDone": "Your location was shared with your family",
+  "map.shareOffNote": "Location sharing is off, so your family won't see it (change it in Edit profile on My page)",
+  "map.until": "until {time}",
 
   "tl.poster": "Post as",
   "tl.placeholder": "Share with your family…",
@@ -632,6 +651,7 @@ export const en: Record<MessageKey, string> = {
   "mv.noRecords": "No records this month",
   "mv.exportPl": "Export P&L (PDF)",
   "mv.childNote": "Only your own allowance book is shown",
+  "mv.noAccess": "The budget is available to parents (father, mother) and kids (son, daughter)",
 
   "cat.food": "Food",
   "cat.daily": "Household goods",

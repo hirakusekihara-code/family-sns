@@ -1,8 +1,9 @@
 import { ArrowDownRight, ArrowUpRight, MapPin, Paperclip } from "lucide-react";
-import { getMember, getSpot } from "@/lib/mockData";
+import { getSpot } from "@/lib/mockData";
+import { useFamily } from "@/lib/family";
 import { formatYen, type CalendarEvent } from "@/lib/calendarData";
 import { useI18n } from "@/lib/i18n/useI18n";
-import Avatar from "@/components/timeline/Avatar";
+import Avatar from "@/components/common/MemberAvatar";
 
 type Props = {
   event: CalendarEvent;
@@ -11,9 +12,11 @@ type Props = {
 
 // 予定1件分の行（予定リスト用）
 export default function EventRow({ event, onOpen }: Props) {
-  const { t, memberName, spotName, categoryLabel } = useI18n();
-  const assignee = getMember(event.assigneeId);
-  const creator = getMember(event.createdById);
+  const { t, spotName, categoryLabel } = useI18n();
+  const family = useFamily();
+  if (!family.ready) return null;
+  const assignee = family.member(event.assigneeId);
+  const creator = family.member(event.createdById);
   const spot = getSpot(event.spotId);
   const place = spot ? `${spot.emoji} ${spotName(spot)}` : event.place;
 
@@ -40,9 +43,9 @@ export default function EventRow({ event, onOpen }: Props) {
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
           <span className="flex items-center gap-1">
             <Avatar member={assignee} size="sm" />
-            {memberName(assignee)}
+            {assignee.name}
             {creator.id !== assignee.id && (
-              <span className="text-slate-400">({t("cal.addedBy", { name: memberName(creator) })})</span>
+              <span className="text-slate-400">({t("cal.addedBy", { name: creator.name })})</span>
             )}
           </span>
           {place && (

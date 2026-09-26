@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useSyncExternalStore } from "react";
-import { getMember, type FamilyMember, type Spot } from "@/lib/mockData";
+import type { Spot } from "@/lib/mockData";
 import { en, ja, type MessageKey } from "./messages";
 
 export type Lang = "ja" | "en";
@@ -52,18 +52,13 @@ export function createI18n(lang: Lang) {
   const t = (key: MessageKey, vars?: Vars) =>
     dict[key].replace(/\{(\w+)\}/g, (_, name: string) => String(vars?.[name] ?? ""));
 
-  const memberName = (m: FamilyMember) => (lang === "en" ? m.nameEn : m.name);
-
   return {
     lang,
     t,
-    memberName,
     spotName: (s: Spot) => (lang === "en" ? s.nameEn : s.name),
     categoryLabel: (id: string) => t(`cat.${id}` as MessageKey),
-    ledgerName: (ledger: { ownerId?: string }) =>
-      ledger.ownerId
-        ? t("ledger.allowance", { name: memberName(getMember(ledger.ownerId)) })
-        : t("ledger.household"),
+    ledgerName: (ledger: { ownerId?: string; ownerName?: string }) =>
+      ledger.ownerId ? t("ledger.allowance", { name: ledger.ownerName ?? "?" }) : t("ledger.household"),
     weekdays: lang === "en" ? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] : ["日", "月", "火", "水", "木", "金", "土"],
     // 「9月25日（金）」/「Fri, Sep 25」
     formatDate: (key: string) => {

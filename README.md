@@ -18,7 +18,7 @@ Next.js (App Router) + Tailwind CSS + Lucide React で作る、家族専用SNS�
 ログイン・プロフィール・家族グループは **Supabase** に保存され、家族のどの端末からでも同じ内容が見られます。
 
 ### Supabase の準備（最初に1回だけ）
-1. Supabase の「SQL Editor」で [`supabase/schema.sql`](supabase/schema.sql)、続けて [`supabase/02_timeline_chat.sql`](supabase/02_timeline_chat.sql) の内容を貼り付けて「Run」を押す
+1. Supabase の「SQL Editor」で [`supabase/schema.sql`](supabase/schema.sql) → [`02_timeline_chat.sql`](supabase/02_timeline_chat.sql) → [`03_calendar_map.sql`](supabase/03_calendar_map.sql) の順に、内容を貼り付けて「Run」を押す
 2. Vercel の Settings → Environment Variables に `SUPABASE_SECRET_KEY`（Supabase の Secret key）を追加して再デプロイ（子どものアカウントに必要）
 3. Supabase の Authentication → URL Configuration の Site URL / Redirect URLs に公開URLを登録
 
@@ -69,6 +69,7 @@ npm run dev
 ```
 supabase/schema.sql       # データベースの設計図：ログイン・プロフィール・家族（Supabase の SQL Editor で実行）
 supabase/02_timeline_chat.sql # データベースの設計図：タイムライン・チャット
+supabase/03_calendar_map.sql  # データベースの設計図：カレンダー・家計簿・添付ファイル・現在地
 src/
 ├── app/api/              # サーバーで動く処理（子どものアカウント作成・ログイン）
 ├── app/                  # 画面（ページ）。フォルダ名がそのままURLになります

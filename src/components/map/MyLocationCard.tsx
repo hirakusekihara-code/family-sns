@@ -11,10 +11,16 @@ type State =
   | { status: "done"; lat: number; lng: number; accuracy: number }
   | { status: "error"; messageKey: MessageKey };
 
-// ブラウザの位置情報（GPS）で、実際の現在地を取得する
-export default function MyLocationCard() {
+type Props = {
+  shareEnabled: boolean; // プロフィールの「位置情報を家族と共有する」
+  onLocated: (lat: number, lng: number, accuracy: number) => Promise<string | null>; // 家族に共有（保存）
+};
+
+// ブラウザの位置情報（GPS）で実際の現在地を取得し、共有がオンなら家族に共有する
+export default function MyLocationCard({ shareEnabled, onLocated }: Props) {
   const { t } = useI18n();
   const [state, setState] = useState<State>({ status: "idle" });
+  const [shareResult, setShareResult] = useState<string | null>(null);
 
   function locate() {
     if (!("geolocation" in navigator)) {
@@ -23,13 +29,15 @@ export default function MyLocationCard() {
     }
     setState({ status: "locating" });
     navigator.geolocation.getCurrentPosition(
-      (pos) =>
-        setState({
-          status: "done",
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          accuracy: Math.round(pos.coords.accuracy),
-        }),
+      async (pos) => {
+        const { latitude: lat, longitude: lng } = pos.coords;
+        const accuracy = Math.round(pos.coords.accuracy);
+        setState({ status: "done", lat, lng, accuracy });
+        if (shareEnabled) {
+          const error = await onLocated(lat, lng, accuracy);
+          setShareResult(error ?? t("map.sharedDone"));
+        }
+      },
       (err) =>
         setState({
           status: "error",
@@ -50,6 +58,9 @@ export default function MyLocationCard() {
             {t("map.lat")} {state.lat.toFixed(5)} / {t("map.lng")} {state.lng.toFixed(5)}
           </p>
           <p className="text-xs text-slate-500">{t("map.accuracy", { m: state.accuracy })}</p>
+          <p className={`mt-1 text-xs ${shareEnabled ? "text-emerald-700" : "text-slate-500"}`} role="status">
+            {shareEnabled ? shareResult : t("map.shareOffNote")}
+          </p>
           <a
             href={`https://www.google.com/maps?q=${state.lat},${state.lng}`}
             target="_blank"

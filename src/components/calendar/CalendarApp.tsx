@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, Plus } from "lucide-react";
-import { createId, currentUserId, familyMembers, getMember } from "@/lib/mockData";
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import {
   categories,
+  ledgersFor,
   parseDateKey,
   shiftMonth,
   toDateKey,
@@ -12,10 +12,11 @@ import {
   type CalendarEvent,
   type YearMonth,
 } from "@/lib/calendarData";
+import { useFamily } from "@/lib/family";
+import { useCalendar } from "@/lib/calendarStore";
+import { SETUP_NEEDED } from "@/lib/supabase/client";
 import { useI18n } from "@/lib/i18n/useI18n";
-import { updateEvents, useEvents } from "@/lib/eventStore";
 import LanguageToggle from "@/components/common/LanguageToggle";
-import Avatar from "@/components/timeline/Avatar";
 import MonthGrid from "./MonthGrid";
 import EventRow from "./EventRow";
 import EventEditor from "./EventEditor";
@@ -31,12 +32,18 @@ function sortEvents(a: CalendarEvent, b: CalendarEvent) {
   return a.start.localeCompare(b.start);
 }
 
-// カレンダー画面全体。予定はマップ画面と共有します（再読み込みで元に戻ります）
+// カレンダー画面全体。予定は Supabase に保存され、家族全員で共有されます
 export default function CalendarApp() {
-  const { t, memberName, monthTitle, formatDate } = useI18n();
+  const family = useFamily();
+  if (!family.ready) return null;
+  return <CalendarInner familyId={family.family.id} />;
+}
+
+function CalendarInner({ familyId }: { familyId: string }) {
+  const { t, monthTitle, formatDate } = useI18n();
+  const family = useFamily();
+  const calendar = useCalendar(familyId);
   const [today] = useState(() => toDateKey(new Date()));
-  const events = useEvents(); // マップ画面と共有
-  const [viewerId, setViewerId] = useState(currentUserId);
   const [tab, setTab] = useState<Tab>("calendar");
   const [filter, setFilter] = useState<Filter>("all");
   const [cursor, setCursor] = useState<YearMonth>(() => {
@@ -48,12 +55,15 @@ export default function CalendarApp() {
   const [ledgerId, setLedgerId] = useState("household");
   const [showPl, setShowPl] = useState(false);
 
-  const viewer = getMember(viewerId);
-  // 表示ユーザーが見られない帳簿が選ばれていたら、見られる帳簿に切り替える
-  const ledgerOptions = visibleLedgers(viewerId);
-  const activeLedgerId = ledgerOptions.some((l) => l.id === ledgerId) ? ledgerId : ledgerOptions[0].id;
+  if (!family.ready) return null;
+  const { me, members, member } = family;
+  const events = calendar.events ?? [];
+  const allLedgers = ledgersFor(members);
+  // 見られる帳簿（保護者：すべて、子ども：自分のお小遣い帳、親族：なし）
+  const ledgerOptions = visibleLedgers(allLedgers, me);
+  const activeLedgerId = ledgerOptions.some((l) => l.id === ledgerId) ? ledgerId : (ledgerOptions[0]?.id ?? null);
 
-  const shown = filter === "mine" ? events.filter((e) => e.assigneeId === viewerId) : events;
+  const shown = filter === "mine" ? events.filter((e) => e.assigneeId === me.id) : events;
   const eventsByDate: Record<string, CalendarEvent[]> = {};
   for (const e of [...shown].sort(sortEvents)) (eventsByDate[e.date] ??= []).push(e);
   const dayEvents = eventsByDate[selected] ?? [];
@@ -72,10 +82,10 @@ export default function CalendarApp() {
 
   function openNew() {
     const base: CalendarEvent = {
-      id: createId("ev"),
+      id: "", // 保存するときにデータベースが決めます
       title: "",
-      assigneeId: viewerId,
-      createdById: viewerId,
+      assigneeId: me.id,
+      createdById: me.id,
       date: selected,
       allDay: false,
       start: "09:00",
@@ -84,29 +94,32 @@ export default function CalendarApp() {
       memo: "",
       attachments: [],
     };
-    if (tab === "money") {
+    if (tab === "money" && activeLedgerId) {
       // 家計簿タブからは「出金の記録」として開く（担当は帳簿の持ち主）
       const owner = ledgerOptions.find((l) => l.id === activeLedgerId)?.ownerId;
       base.allDay = true;
-      base.assigneeId = owner ?? viewerId;
+      base.assigneeId = owner ?? me.id;
       base.money = { type: "expense", amount: 0, category: categories.expense[0], ledgerId: activeLedgerId };
     }
     setEditor({ event: base, isNew: true });
   }
 
-  function saveEvent(event: CalendarEvent) {
-    updateEvents((prev) =>
-      prev.some((e) => e.id === event.id) ? prev.map((e) => (e.id === event.id ? event : e)) : [...prev, event],
-    );
+  // 保存（失敗したときはエラー文を返し、編集画面に表示）
+  async function saveEvent(event: CalendarEvent) {
+    const error = await calendar.saveEvent(event, editor?.isNew ? null : editor!.event);
+    if (error) return error;
     setSelected(event.date);
     const d = parseDateKey(event.date);
     setCursor({ year: d.getFullYear(), month: d.getMonth() });
     setEditor(null);
+    return null;
   }
 
-  function deleteEvent(id: string) {
-    updateEvents((prev) => prev.filter((e) => e.id !== id));
+  async function deleteEvent(event: CalendarEvent) {
+    const error = await calendar.deleteEvent(event);
+    if (error) return error;
     setEditor(null);
+    return null;
   }
 
   return (
@@ -127,29 +140,9 @@ export default function CalendarApp() {
           >
             {t("cal.today")}
           </button>
-          {/* 表示ユーザーの切り替え（プロトタイプ用） */}
-          <label className="relative ml-1 flex items-center gap-0.5 rounded-full p-0.5 hover:bg-slate-100" title={t("cal.viewAs")}>
-            <Avatar member={viewer} size="sm" />
-            <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
-            <select
-              value={viewerId}
-              onChange={(e) => setViewerId(e.target.value)}
-              aria-label={t("cal.viewAs")}
-              className="absolute inset-0 cursor-pointer opacity-0"
-            >
-              {familyMembers.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.emoji} {memberName(m)}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <div className="flex items-center justify-between px-4 pb-1 pt-1">
-          <p className="text-[11px] text-slate-400">
-            {t("cal.viewAs")}：{memberName(viewer)}
-          </p>
-          <LanguageToggle />
+          <span className="ml-1">
+            <LanguageToggle />
+          </span>
         </div>
         <div className="grid grid-cols-2">
           {(["calendar", "money"] as const).map((id) => (
@@ -166,7 +159,15 @@ export default function CalendarApp() {
         </div>
       </header>
 
-      {tab === "calendar" ? (
+      {calendar.error && (
+        <p className="m-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">
+          {calendar.error === SETUP_NEEDED ? t("setup.tablesMissing") : calendar.error}
+        </p>
+      )}
+
+      {calendar.events === null && !calendar.error ? (
+        <p className="py-10 text-center text-sm text-slate-400">{t("common.loading")}</p>
+      ) : tab === "calendar" ? (
         <>
           {/* フィルター：全員 / 自分のみ */}
           <div className="flex items-center gap-2 overflow-x-auto bg-white px-4 py-2">
@@ -184,15 +185,22 @@ export default function CalendarApp() {
               </button>
             ))}
             <span className="mx-1 h-4 w-px shrink-0 bg-slate-200" />
-            {familyMembers.map((m) => (
+            {members.map((m) => (
               <span key={m.id} className="flex shrink-0 items-center gap-1 text-xs text-slate-500">
                 <span className={`h-2.5 w-2.5 rounded-full ${m.color}`} />
-                {memberName(m)}
+                {m.name}
               </span>
             ))}
           </div>
 
-          <MonthGrid cursor={cursor} today={today} selected={selected} eventsByDate={eventsByDate} onSelect={setSelected} />
+          <MonthGrid
+            cursor={cursor}
+            today={today}
+            selected={selected}
+            eventsByDate={eventsByDate}
+            colorOf={(id) => member(id).color}
+            onSelect={setSelected}
+          />
 
           {/* 選んだ日の予定 */}
           <section className="space-y-2 p-4">
@@ -213,7 +221,8 @@ export default function CalendarApp() {
       ) : (
         <MoneyView
           events={events}
-          viewerId={viewerId}
+          ledgers={ledgerOptions}
+          isChild={me.role === "child"}
           cursor={cursor}
           ledgerId={activeLedgerId}
           onLedgerChange={setLedgerId}
@@ -239,17 +248,19 @@ export default function CalendarApp() {
           key={editor.event.id}
           event={editor.event}
           isNew={editor.isNew}
-          viewerId={viewerId}
+          ledgers={ledgerOptions}
+          allLedgers={allLedgers}
           onSave={saveEvent}
           onDelete={deleteEvent}
           onClose={() => setEditor(null)}
         />
       )}
 
-      {showPl && (
+      {showPl && activeLedgerId && (
         <PlExport
           events={events}
-          viewerId={viewerId}
+          ledgers={ledgerOptions}
+          preparedBy={me.name}
           initialLedgerId={activeLedgerId}
           initialMonth={cursor}
           onClose={() => setShowPl(false)}

@@ -11,20 +11,3 @@ export const spotPositions: Record<string, { x: number; y: number }> = {
   supermarket: { x: 66, y: 44 },
   clinic: { x: 34, y: 42 },
 };
-
-export type MemberLocation = {
-  memberId: string;
-  spotId?: string; // スポットにいるとき
-  x: number;
-  y: number;
-  moving: boolean; // 移動中
-  minutesAgo: number; // 最終更新
-  battery: number; // バッテリー残量（%）
-};
-
-export const memberLocations: MemberLocation[] = [
-  { memberId: "papa", spotId: "office", ...spotPositions.office, moving: false, minutesAgo: 3, battery: 64 },
-  { memberId: "mama", spotId: "home", ...spotPositions.home, moving: false, minutesAgo: 0, battery: 88 },
-  { memberId: "hana", spotId: "junior-high", ...spotPositions["junior-high"], moving: false, minutesAgo: 5, battery: 42 },
-  { memberId: "sora", x: 46, y: 78, moving: true, minutesAgo: 2, battery: 17 },
-];

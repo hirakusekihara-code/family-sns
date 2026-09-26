@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlignLeft,
   Clock,
@@ -12,43 +12,65 @@ import {
   Wallet,
   X,
 } from "lucide-react";
-import { createId, familyMembers, getMember, spots } from "@/lib/mockData";
+import { createId, spots } from "@/lib/mockData";
 import {
   attachmentKinds,
   categories,
   defaultLedgerFor,
-  getLedger,
-  visibleLedgers,
+  findLedger,
   type Attachment,
   type AttachmentKind,
   type CalendarEvent,
+  type Ledger,
   type MoneyType,
 } from "@/lib/calendarData";
+import { useFamily } from "@/lib/family";
+import { signedUrls } from "@/lib/calendarStore";
 import { useI18n } from "@/lib/i18n/useI18n";
 
 type Props = {
   event: CalendarEvent;
   isNew: boolean;
-  viewerId: string; // 今操作している人
-  onSave: (event: CalendarEvent) => void;
-  onDelete: (id: string) => void;
+  ledgers: Ledger[]; // 自分が使える帳簿
+  allLedgers: Ledger[];
+  onSave: (event: CalendarEvent) => Promise<string | null>; // 失敗したらエラー文
+  onDelete: (event: CalendarEvent) => Promise<string | null>;
   onClose: () => void;
 };
 
 // 予定の登録・編集（Googleカレンダー風の全画面シート）
-export default function EventEditor({ event, isNew, viewerId, onSave, onDelete, onClose }: Props) {
-  const { t, memberName, spotName, categoryLabel, ledgerName } = useI18n();
+export default function EventEditor({ event, isNew, ledgers, allLedgers, onSave, onDelete, onClose }: Props) {
+  const { t, spotName, categoryLabel, ledgerName } = useI18n();
+  const family = useFamily();
   const [draft, setDraft] = useState<CalendarEvent>(event);
   const [showErrors, setShowErrors] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 保存済みの添付ファイルを開くための一時URLを用意
+  useEffect(() => {
+    let active = true;
+    signedUrls(event.attachments).then((urls) => {
+      if (!active) return;
+      setDraft((d) => ({ ...d, attachments: d.attachments.map((a) => (urls[a.id] ? { ...a, url: urls[a.id] } : a)) }));
+    });
+    return () => {
+      active = false;
+    };
+  }, [event.attachments]);
+
+  if (!family.ready) return null;
+  const member = family.member;
 
   const update = (patch: Partial<CalendarEvent>) => setDraft((d) => ({ ...d, ...patch }));
 
-  // 選べる帳簿：見る権限のある帳簿 + いま設定されている帳簿
-  const ledgerOptions = visibleLedgers(viewerId);
+  // 選べる帳簿：使える帳簿 + いま設定されている帳簿
+  const ledgerOptions = [...ledgers];
   if (draft.money && !ledgerOptions.some((l) => l.id === draft.money!.ledgerId)) {
-    ledgerOptions.push(getLedger(draft.money.ledgerId));
+    ledgerOptions.push(findLedger(allLedgers, draft.money.ledgerId));
   }
+  const canUseMoney = ledgers.length > 0 || !!draft.money;
 
   const titleMissing = draft.title.trim() === "";
   const amountMissing = !!draft.money && draft.money.amount <= 0;
@@ -57,9 +79,9 @@ export default function EventEditor({ event, isNew, viewerId, onSave, onDelete, 
     setDraft((d) => {
       // お金の帳簿が「前の担当者の標準帳簿」のままなら、新しい担当者の標準帳簿に合わせる
       let money = d.money;
-      if (money && money.ledgerId === defaultLedgerFor(d.assigneeId)) {
-        const next = defaultLedgerFor(assigneeId);
-        if (visibleLedgers(viewerId).some((l) => l.id === next)) money = { ...money, ledgerId: next };
+      if (money && money.ledgerId === defaultLedgerFor(member(d.assigneeId))) {
+        const next = defaultLedgerFor(member(assigneeId));
+        if (ledgers.some((l) => l.id === next)) money = { ...money, ledgerId: next };
       }
       return { ...d, assigneeId, money };
     });
@@ -68,9 +90,8 @@ export default function EventEditor({ event, isNew, viewerId, onSave, onDelete, 
   function changeMoneyType(type: MoneyType | "none") {
     if (type === "none") return update({ money: undefined });
     const current = draft.money;
-    const ledgerId = current?.ledgerId ?? (visibleLedgers(viewerId).some((l) => l.id === defaultLedgerFor(draft.assigneeId))
-      ? defaultLedgerFor(draft.assigneeId)
-      : visibleLedgers(viewerId)[0].id);
+    const preferred = defaultLedgerFor(member(draft.assigneeId));
+    const ledgerId = current?.ledgerId ?? (ledgers.some((l) => l.id === preferred) ? preferred : ledgers[0].id);
     const category = current && categories[type].includes(current.category) ? current.category : categories[type][0];
     update({ money: { type, amount: current?.amount ?? 0, category, ledgerId } });
   }
@@ -82,27 +103,37 @@ export default function EventEditor({ event, isNew, viewerId, onSave, onDelete, 
       id: createId("file"),
       name: file.name,
       kind,
-      url: URL.createObjectURL(file), // ブラウザ内だけで使える一時URL（再読み込みで消えます）
+      url: URL.createObjectURL(file), // 保存前のプレビュー用
       mimeType: file.type,
+      file, // 保存するときに Supabase にアップロード
     }));
     update({ attachments: [...draft.attachments, ...added] });
   }
 
   function removeAttachment(id: string) {
     const target = draft.attachments.find((a) => a.id === id);
-    if (target?.url.startsWith("blob:")) URL.revokeObjectURL(target.url);
+    if (target?.url?.startsWith("blob:")) URL.revokeObjectURL(target.url);
     update({ attachments: draft.attachments.filter((a) => a.id !== id) });
   }
 
-  function handleSave() {
+  async function handleSave() {
     if (titleMissing || amountMissing) {
       setShowErrors(true);
       return;
     }
-    onSave({ ...draft, title: draft.title.trim() });
+    setSaving(true);
+    setSaveError(await onSave({ ...draft, title: draft.title.trim() }));
+    setSaving(false);
   }
 
-  const creator = getMember(draft.createdById);
+  async function handleDelete() {
+    if (!window.confirm(t("ed.deleteConfirm"))) return;
+    setSaving(true);
+    setSaveError(await onDelete(event));
+    setSaving(false);
+  }
+
+  const creator = member(draft.createdById);
 
   return (
     <div className="fixed inset-0 z-[60] mx-auto flex max-w-md flex-col bg-white">
@@ -114,12 +145,18 @@ export default function EventEditor({ event, isNew, viewerId, onSave, onDelete, 
         <button
           type="button"
           onClick={handleSave}
-          className="rounded-full bg-indigo-600 px-6 py-2 text-sm font-semibold text-white active:scale-95"
+          disabled={saving}
+          className="rounded-full bg-indigo-600 px-6 py-2 text-sm font-semibold text-white active:scale-95 disabled:bg-slate-300"
         >
-          {t("common.save")}
+          {saving ? t("pl.generating") : t("common.save")}
         </button>
       </div>
 
+      {saveError && (
+        <p className="mx-4 mb-2 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">
+          {saveError}
+        </p>
+      )}
       <div className="flex-1 overflow-y-auto pb-10">
         {/* タイトル */}
         <div className="pl-14 pr-4">
@@ -136,7 +173,7 @@ export default function EventEditor({ event, isNew, viewerId, onSave, onDelete, 
         {/* 担当 */}
         <Row icon={Users} label={t("ed.assignee")}>
           <div className="flex flex-wrap gap-2">
-            {familyMembers.map((m) => (
+            {family.members.map((m) => (
               <button
                 key={m.id}
                 type="button"
@@ -148,12 +185,11 @@ export default function EventEditor({ event, isNew, viewerId, onSave, onDelete, 
                     : "border-slate-200 text-slate-600"
                 }`}
               >
-                <span>{m.emoji}</span>
-                {memberName(m)}
+                {m.name}
               </button>
             ))}
           </div>
-          <p className="mt-2 text-xs text-slate-400">{t("ed.createdBy", { name: memberName(creator) })}</p>
+          <p className="mt-2 text-xs text-slate-400">{t("ed.createdBy", { name: creator.name })}</p>
         </Row>
 
         {/* 日時 */}
@@ -248,7 +284,9 @@ export default function EventEditor({ event, isNew, viewerId, onSave, onDelete, 
           />
         </Row>
 
-        {/* お金（家計簿） */}
+        {/* お金（家計簿）：使える帳簿がある人だけ */}
+        {canUseMoney && (
+          <>
         <Row icon={Wallet} label={t("ed.money")}>
           <div className="grid grid-cols-3 rounded-xl bg-slate-100 p-1 text-sm font-medium">
             {(
@@ -332,6 +370,9 @@ export default function EventEditor({ event, isNew, viewerId, onSave, onDelete, 
           )}
         </Row>
 
+          </>
+        )}
+
         {/* 添付ファイル */}
         <Row icon={Paperclip} label={t("ed.attachments")}>
           <ul className="space-y-2">
@@ -344,7 +385,7 @@ export default function EventEditor({ event, isNew, viewerId, onSave, onDelete, 
                   aria-label={`${t("ed.open")}: ${a.name}`}
                   className="flex h-14 w-11 shrink-0 items-center justify-center overflow-hidden rounded-md bg-slate-100"
                 >
-                  {a.mimeType.startsWith("image/") ? (
+                  {a.mimeType.startsWith("image/") && a.url ? (
                     // eslint-disable-next-line @next/next/no-img-element -- ブラウザ内の一時URLを表示するため
                     <img src={a.url} alt="" className="h-full w-full object-cover" />
                   ) : (
@@ -408,7 +449,8 @@ export default function EventEditor({ event, isNew, viewerId, onSave, onDelete, 
           <div className="px-4 pt-6">
             <button
               type="button"
-              onClick={() => window.confirm(t("ed.deleteConfirm")) && onDelete(draft.id)}
+              onClick={handleDelete}
+              disabled={saving}
               className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200 py-2.5 text-sm font-medium text-rose-600"
             >
               <Trash2 className="h-4 w-4" />

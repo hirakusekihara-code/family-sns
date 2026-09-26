@@ -2,18 +2,18 @@
 
 import { useRef, useState } from "react";
 import { FileDown, Loader2, X } from "lucide-react";
-import { getMember } from "@/lib/mockData";
+import { useFamily } from "@/lib/family";
 import {
   categories,
-  getLedger,
+  findLedger,
   monthKey,
   monthsBetween,
   shiftMonth,
   sumBy,
   toDateKey,
   transactionsOf,
-  visibleLedgers,
   type CalendarEvent,
+  type Ledger,
   type MoneyType,
   type Transaction,
   type YearMonth,
@@ -22,7 +22,8 @@ import { useI18n, type I18n } from "@/lib/i18n/useI18n";
 
 type Props = {
   events: CalendarEvent[];
-  viewerId: string;
+  ledgers: Ledger[]; // 出力できる帳簿
+  preparedBy: string; // 作成者（自分の呼び名）
   initialLedgerId: string;
   initialMonth: YearMonth;
   onClose: () => void;
@@ -37,9 +38,11 @@ function parseMonthInput(value: string): YearMonth | null {
 }
 
 // PL（収支報告書）の出力：期間を選んで、月ごとの収支表をPDFで保存
-export default function PlExport({ events, viewerId, initialLedgerId, initialMonth, onClose }: Props) {
+export default function PlExport({ events, ledgers, preparedBy, initialLedgerId, initialMonth, onClose }: Props) {
   const i18n = useI18n();
-  const { t, ledgerName, memberName, formatDate } = i18n;
+  const { t, ledgerName, formatDate } = i18n;
+  const family = useFamily();
+  const nameOf = (id: string) => (family.ready ? family.member(id).name : "?");
   const [ledgerId, setLedgerId] = useState(initialLedgerId);
   const [from, setFrom] = useState<YearMonth>(() => shiftMonth(initialMonth, -1)); // 初期値：前月〜表示中の月
   const [to, setTo] = useState<YearMonth>(initialMonth);
@@ -54,7 +57,7 @@ export default function PlExport({ events, viewerId, initialLedgerId, initialMon
   const tooLong = !rangeInvalid && monthKey(shiftMonth(from, MAX_MONTHS - 1)) < monthKey(to);
   const canExport = !rangeInvalid && !tooLong && months.length > 0;
 
-  const ledger = getLedger(ledgerId);
+  const ledger = findLedger(ledgers, ledgerId);
   const orientation = months.length > 6 ? "landscape" : "portrait";
   const size = A4[orientation];
   const scale = previewWidth / size.width;
@@ -74,7 +77,7 @@ export default function PlExport({ events, viewerId, initialLedgerId, initialMon
     ledger: `${ledger.emoji} ${ledgerName(ledger)}`,
     period: periodLabel,
     createdAt: formatDate(toDateKey(new Date())),
-    createdBy: memberName(getMember(viewerId)),
+    createdBy: preparedBy,
   };
 
   async function download() {
@@ -109,7 +112,7 @@ export default function PlExport({ events, viewerId, initialLedgerId, initialMon
     }
   }
 
-  const ledgerOptions = visibleLedgers(viewerId);
+  const ledgerOptions = ledgers;
 
   return (
     <div className="fixed inset-0 z-[60] mx-auto flex max-w-md flex-col bg-slate-100">
@@ -211,7 +214,7 @@ export default function PlExport({ events, viewerId, initialLedgerId, initialMon
                       {i === 0 ? (
                         <PlTable months={months} transactions={inRange} allTransactions={all} ledgerInitial={ledger.initialBalance} showBalance={!!ledger.ownerId} i18n={i18n} />
                       ) : (
-                        <DetailTable rows={detailPages[i - 1]} i18n={i18n} />
+                        <DetailTable rows={detailPages[i - 1]} i18n={i18n} nameOf={nameOf} />
                       )}
                     </div>
                     <p className="text-right text-[10px] text-slate-400">
@@ -400,8 +403,8 @@ function PlTable({
   );
 }
 
-function DetailTable({ rows, i18n }: { rows: Transaction[]; i18n: I18n }) {
-  const { t, categoryLabel, memberName, formatAccounting } = i18n;
+function DetailTable({ rows, i18n, nameOf }: { rows: Transaction[]; i18n: I18n; nameOf: (id: string) => string }) {
+  const { t, categoryLabel, formatAccounting } = i18n;
   const th = "border border-slate-800 px-2 py-1.5 font-semibold";
   const td = "border border-slate-300 px-2 py-1";
   return (
@@ -425,7 +428,7 @@ function DetailTable({ rows, i18n }: { rows: Transaction[]; i18n: I18n }) {
               <td className={`${td} whitespace-nowrap tabular-nums`}>{tx.date.replaceAll("-", "/")}</td>
               <td className={td}>{tx.title}</td>
               <td className={td}>{categoryLabel(tx.money.category)}</td>
-              <td className={td}>{memberName(getMember(tx.assigneeId))}</td>
+              <td className={td}>{nameOf(tx.assigneeId)}</td>
               <td className={`${td} text-right tabular-nums`}>
                 {tx.money.type === "income" ? formatAccounting(tx.money.amount) : ""}
               </td>

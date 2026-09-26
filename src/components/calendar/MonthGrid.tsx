@@ -1,4 +1,3 @@
-import { getMember } from "@/lib/mockData";
 import { monthGridDays, parseDateKey, type CalendarEvent, type YearMonth } from "@/lib/calendarData";
 import { useI18n } from "@/lib/i18n/useI18n";
 
@@ -7,13 +6,14 @@ type Props = {
   today: string;
   selected: string;
   eventsByDate: Record<string, CalendarEvent[]>;
+  colorOf: (memberId: string) => string; // 担当者のテーマカラー
   onSelect: (date: string) => void;
 };
 
 const MAX_CHIPS = 2;
 
 // Googleカレンダー風の月表示
-export default function MonthGrid({ cursor, today, selected, eventsByDate, onSelect }: Props) {
+export default function MonthGrid({ cursor, today, selected, eventsByDate, colorOf, onSelect }: Props) {
   const { t, weekdays, formatDate } = useI18n();
   const days = monthGridDays(cursor);
 
@@ -67,7 +67,7 @@ export default function MonthGrid({ cursor, today, selected, eventsByDate, onSel
               {events.slice(0, MAX_CHIPS).map((ev) => (
                 <span
                   key={ev.id}
-                  className={`truncate rounded-[4px] px-1 text-[10px] leading-4 text-white ${getMember(ev.assigneeId).color} ${
+                  className={`truncate rounded-[4px] px-1 text-[10px] leading-4 text-white ${colorOf(ev.assigneeId)} ${
                     inMonth ? "" : "opacity-40"
                   }`}
                 >

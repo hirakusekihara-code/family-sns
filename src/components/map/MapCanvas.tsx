@@ -1,15 +1,17 @@
 "use client";
 
-import { getMember, getSpot, spots } from "@/lib/mockData";
-import { spotPositions, type MemberLocation } from "@/lib/mapData";
+import { getSpot, spots } from "@/lib/mockData";
+import { spotPositions } from "@/lib/mapData";
+import type { Member } from "@/lib/family";
 import { useI18n } from "@/lib/i18n/useI18n";
-import Avatar from "@/components/timeline/Avatar";
+import Avatar from "@/components/common/MemberAvatar";
 
 export type Selection = { kind: "spot" | "member"; id: string } | null;
+export type Pin = { member: Member; spotId: string }; // 家族のアイコンを置くスポット（今の予定の場所）
 
 type Props = {
   eventCountBySpot: Record<string, number>;
-  locations: MemberLocation[];
+  pins: Pin[];
   youId: string;
   selection: Selection;
   onSelect: (selection: Selection) => void;
@@ -17,18 +19,11 @@ type Props = {
 };
 
 // イラスト風の地図 ＋ スポット・家族のアイコン
-export default function MapCanvas({ eventCountBySpot, locations, youId, selection, onSelect, children }: Props) {
-  const { t, memberName, spotName } = useI18n();
+export default function MapCanvas({ eventCountBySpot, pins, youId, selection, onSelect, children }: Props) {
+  const { t, spotName } = useI18n();
 
   // 同じ場所にいる家族は少しずつ横にずらして表示
-  const offsets = new Map<string, number>();
-  const countAt = new Map<string, number>();
-  for (const loc of locations) {
-    const key = `${loc.x},${loc.y}`;
-    const i = countAt.get(key) ?? 0;
-    countAt.set(key, i + 1);
-    offsets.set(loc.memberId, i);
-  }
+  const indexAtSpot = new Map<string, number>();
 
   return (
     <div className="relative aspect-[3/4] w-full overflow-hidden bg-[#eaf1e4]">
@@ -69,33 +64,29 @@ export default function MapCanvas({ eventCountBySpot, locations, youId, selectio
         );
       })}
 
-      {/* 家族の現在地 */}
-      {locations.map((loc) => {
-        const member = getMember(loc.memberId);
+      {/* 家族（今の予定の場所） */}
+      {pins.map(({ member, spotId }) => {
+        const pos = spotPositions[spotId];
+        if (!pos || !getSpot(spotId)) return null;
+        const i = indexAtSpot.get(spotId) ?? 0;
+        indexAtSpot.set(spotId, i + 1);
         const selected = selection?.kind === "member" && selection.id === member.id;
-        // スポットにいるときは、予定件数のバッジ（右上）を隠さないよう少し左に寄せる
-        const shift = (offsets.get(member.id) ?? 0) * 26 - (loc.spotId ? 16 : 0);
-        const spot = getSpot(loc.spotId);
+        // 予定件数のバッジ（右上）を隠さないよう、左に寄せて並べる
+        const shift = i * 26 - 16;
         return (
           <button
             key={member.id}
             type="button"
             onClick={() => onSelect(selected ? null : { kind: "member", id: member.id })}
             aria-pressed={selected}
-            aria-label={`${memberName(member)}: ${spot ? spotName(spot) : t("map.moving")}`}
+            aria-label={`${member.name}: ${spotName(getSpot(spotId)!)}`}
             className="absolute z-20 flex flex-col items-center"
-            style={{
-              left: `${loc.x}%`,
-              top: `${loc.y}%`,
-              // スポットにいるときはスポットのアイコンの上に、移動中はその場所に表示
-              transform: `translate(calc(-50% + ${shift}px), ${loc.spotId ? "-118%" : "-50%"})`,
-            }}
+            style={{ left: `${pos.x}%`, top: `${pos.y}%`, transform: `translate(calc(-50% + ${shift}px), -118%)` }}
           >
             <span className={`relative rounded-full p-0.5 shadow-lg transition ${selected ? "scale-110 bg-indigo-500" : "bg-white"}`}>
-              {loc.moving && <span className="absolute inset-0 animate-ping rounded-full bg-white/70" />}
               <Avatar member={member} size="sm" />
             </span>
-            {loc.memberId === youId && (
+            {member.id === youId && (
               <span className="mt-0.5 rounded-full bg-slate-900 px-1.5 text-[9px] font-semibold text-white">
                 {t("common.you")}
               </span>
@@ -115,7 +106,6 @@ export default function MapCanvas({ eventCountBySpot, locations, youId, selectio
 function MapIllustration() {
   return (
     <svg viewBox="0 0 300 400" preserveAspectRatio="none" className="absolute inset-0 h-full w-full" aria-hidden>
-      {/* 街区 */}
       {[
         [20, 150, 50, 36], [80, 150, 38, 36], [150, 220, 44, 34], [205, 220, 60, 34], [150, 270, 44, 40],
         [20, 215, 40, 50], [70, 215, 45, 50], [230, 110, 50, 30], [150, 110, 40, 30], [30, 350, 60, 40],
@@ -123,20 +113,15 @@ function MapIllustration() {
       ].map(([x, y, w, h], i) => (
         <rect key={i} x={x} y={y} width={w} height={h} rx="4" fill="#dde5d4" />
       ))}
-      {/* 公園（サッカー場のまわり） */}
       <rect x="175" y="290" width="120" height="100" rx="14" fill="#cbe6bb" />
       {[[190, 305], [280, 310], [185, 380], [285, 378], [240, 385]].map(([cx, cy], i) => (
         <circle key={i} cx={cx} cy={cy} r="7" fill="#9fd08a" />
       ))}
-      {/* 校庭 */}
       <rect x="20" y="55" width="75" height="55" rx="8" fill="#f1e2c6" />
-      {/* 川 */}
       <path d="M -10 130 C 80 110, 140 175, 310 150" stroke="#a7d3f2" strokeWidth="20" fill="none" />
       <path d="M -10 130 C 80 110, 140 175, 310 150" stroke="#c4e3f8" strokeWidth="8" fill="none" />
-      {/* 線路 */}
       <line x1="0" y1="35" x2="300" y2="35" stroke="#94a3b8" strokeWidth="4" />
       <line x1="0" y1="35" x2="300" y2="35" stroke="#fff" strokeWidth="2" strokeDasharray="8 8" />
-      {/* 道路（縁取り → 本体の順に描く） */}
       {[
         ["M 0 205 L 300 205", 12],
         ["M 130 0 L 130 400", 12],
