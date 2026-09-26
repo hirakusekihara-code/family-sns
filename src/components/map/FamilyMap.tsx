@@ -6,10 +6,9 @@ import L from "leaflet";
 import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import type { Member } from "@/lib/family";
 
-// 地図の見た目：OpenStreetMap のデータを CARTO が Googleマップ風の配色で描いた無料の地図
-const TILE_URL = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
-const ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
+// 地図の見た目：OpenStreetMap 公式の無料の地図（登録やキーは不要。出典の表示が条件）
+const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+const ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
 export type MapPlace = { id: string; name: string; emoji: string; lat: number; lng: number; count: number };
 export type MapMember = { member: Member; lat: number; lng: number; source: "gps" | "plan" };
@@ -56,8 +55,8 @@ function memberIcon({ member, source }: MapMember, youLabel: string | null) {
   return L.divIcon({
     className: "",
     iconSize: [44, 44],
-    iconAnchor: [22, 44],
-    popupAnchor: [0, -44],
+    iconAnchor: [48, 50], // 場所のアイコンと重なっても両方タップできるよう、少し左上にずらす
+    popupAnchor: [-26, -50],
     html: `<div class="flex flex-col items-center"><div class="rounded-full p-[3px] shadow-lg ${ring}">${face}</div>${
       youLabel ? `<span class="-mt-1 rounded-full bg-slate-900 px-1.5 text-[9px] font-semibold text-white">${esc(youLabel)}</span>` : ""
     }</div>`,
@@ -93,7 +92,7 @@ export default function FamilyMap(props: Props) {
       attributionControl
       style={{ cursor: props.pickMode ? "crosshair" : undefined }}
     >
-      <TileLayer url={TILE_URL} attribution={ATTRIBUTION} subdomains="abcd" maxZoom={20} />
+      <TileLayer url={TILE_URL} attribution={ATTRIBUTION} maxZoom={19} />
       <MapController {...props} markers={markers} />
 
       {places.map((p) => (
@@ -141,6 +140,11 @@ function MapController({
       if (pickMode) onPick({ lat: e.latlng.lat, lng: e.latlng.lng });
     },
   });
+
+  // 場所の登録・編集を始めたら、地図をタップしやすいように吹き出しを閉じる
+  useEffect(() => {
+    if (pickMode) map.closePopup();
+  }, [pickMode, map]);
 
   useEffect(() => {
     if (!focus) return;

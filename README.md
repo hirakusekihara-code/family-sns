@@ -90,11 +90,14 @@ src/
 │   ├── calendar/         # カレンダー・家計簿・PL出力の部品
 │   └── map/              # マップ（地図・ポップアップ・GPS）の部品
 └── lib/
-    ├── mockData.ts       # 擬似データ（家族メンバー・場所・投稿）
-    ├── chatData.ts       # チャットの擬似データ
-    ├── calendarData.ts   # 予定・家計簿の擬似データと日付計算
-    ├── eventStore.ts     # 予定データの保管場所（カレンダーとマップで共有）
-    ├── mapData.ts        # 地図上のスポットの位置・家族の現在地（擬似データ）
+    ├── mockData.ts       # 以前の固定の場所・リアクションの種類など
+    ├── family.ts         # ログイン中の家族のメンバー一覧
+    ├── timelineStore.ts  # タイムラインのデータ（Supabase）
+    ├── chatData.ts       # チャットの型と表示用の関数
+    ├── chatStore.ts      # チャットのデータ（Supabase）
+    ├── calendarData.ts   # 予定・家計簿の型と日付計算
+    ├── calendarStore.ts  # 予定・添付ファイル・家族の現在地のデータ（Supabase）
+    ├── placesStore.ts    # マップで登録した場所のデータ（Supabase）
     ├── profile/          # プロフィール・家族の型と、ログインの仕組み（Supabase）
     ├── supabase/         # Supabase への接続（ブラウザ用・サーバー用）
     └── i18n/             # 日本語 / 英語の対訳表（messages.ts）と切替の仕組み
