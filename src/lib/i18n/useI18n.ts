@@ -83,7 +83,8 @@ export function createI18n(lang: Lang) {
       if (minutes < 1) return t("common.justNow");
       if (minutes < 60) return t("common.minutesAgo", { n: minutes });
       if (minutes < 60 * 24) return t("common.hoursAgo", { n: Math.floor(minutes / 60) });
-      return t("common.yesterday");
+      if (minutes < 60 * 48) return t("common.yesterday");
+      return t("common.daysAgo", { n: Math.floor(minutes / (60 * 24)) });
     },
     // チャットの時刻表示（"yesterday" だけ翻訳）
     formatChatTime: (time: string) => (time === "yesterday" ? t("common.yesterday") : time),

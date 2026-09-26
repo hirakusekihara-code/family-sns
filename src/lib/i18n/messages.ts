@@ -11,6 +11,16 @@ export const ja = {
   "common.justNow": "たった今",
   "common.minutesAgo": "{n}分前",
   "common.hoursAgo": "{n}時間前",
+  "common.daysAgo": "{n}日前",
+  "common.loading": "読み込み中…",
+  "common.delete": "削除",
+  "tl.empty": "まだ投稿がありません。家族に最初の投稿をしてみましょう！",
+  "tl.deleteConfirm": "この投稿を削除しますか？",
+  "tl.deletePost": "投稿を削除",
+  "chat.emptyGroup": "まだメッセージがありません。家族にあいさつしてみましょう！",
+  "chat.emptyDm": "{name}さんとのメッセージはまだありません",
+  "chat.noMembers": "まだほかの家族がいません。マイページの招待コードで家族を招待しましょう",
+  "call.demoNote": "デモ：通話機能は準備中のため、相手にはつながりません",
   "common.you": "あなた",
 
   // ボトムナビ
@@ -71,6 +81,7 @@ export const ja = {
   "setup.dbBody": "Supabase の「SQL Editor」で、リポジトリの supabase/schema.sql を実行してください。実行後にこの画面を再読み込みします。",
   "setup.errorTitle": "読み込みに失敗しました",
   "setup.retry": "もう一度読み込む",
+  "setup.tablesMissing": "データベースの追加の準備がまだです。Supabase の SQL Editor で supabase/02_timeline_chat.sql を実行してください",
 
   // プロフィール
   "pf.title": "プロフィール",
@@ -347,6 +358,16 @@ export const en: Record<MessageKey, string> = {
   "common.justNow": "Just now",
   "common.minutesAgo": "{n}m ago",
   "common.hoursAgo": "{n}h ago",
+  "common.daysAgo": "{n}d ago",
+  "common.loading": "Loading…",
+  "common.delete": "Delete",
+  "tl.empty": "No posts yet. Share the first one with your family!",
+  "tl.deleteConfirm": "Delete this post?",
+  "tl.deletePost": "Delete post",
+  "chat.emptyGroup": "No messages yet. Say hello to your family!",
+  "chat.emptyDm": "No messages with {name} yet",
+  "chat.noMembers": "No other family members yet. Invite them with the invite code on My page",
+  "call.demoNote": "Demo: calling isn't available yet, so this won't reach anyone",
   "common.you": "You",
 
   "nav.timeline": "Timeline",
@@ -405,6 +426,7 @@ export const en: Record<MessageKey, string> = {
   "setup.dbBody": "Run supabase/schema.sql from the repository in Supabase's SQL Editor, then reload this page.",
   "setup.errorTitle": "Couldn't load",
   "setup.retry": "Try again",
+  "setup.tablesMissing": "The database needs one more step. Run supabase/02_timeline_chat.sql in Supabase's SQL Editor",
 
   "pf.title": "Profile",
   "pf.setupTitle": "Create your profile",

@@ -2,44 +2,52 @@
 
 import { useEffect, useRef } from "react";
 import { ChevronLeft, Phone, Video } from "lucide-react";
-import { currentUserId, getMember } from "@/lib/mockData";
-import { conversationTitle, type CallType, type ChatMessage, type Conversation } from "@/lib/chatData";
+import type { Member } from "@/lib/family";
+import type { ChatMessage } from "@/lib/chatStore";
+import { messageTime, type CallType } from "@/lib/chatData";
 import { useI18n } from "@/lib/i18n/useI18n";
-import Avatar from "@/components/timeline/Avatar";
+import Avatar from "@/components/common/MemberAvatar";
 import MessageBubble from "./MessageBubble";
 import MessageComposer from "./MessageComposer";
 
 type Props = {
-  conversation: Conversation;
+  title: string;
+  isGroup: boolean;
+  members: Member[]; // 自分以外の参加者
+  me: Member;
+  member: (id: string) => Member;
   messages: ChatMessage[];
-  typingMemberId: string | null;
-  onSendText: (text: string) => void;
-  onSendPhoto: () => void;
-  onToggleLike: (messageId: string) => void;
+  emptyText: string;
+  onSendText: (text: string) => Promise<boolean>;
+  onSendPhoto: (photo: string) => Promise<boolean>;
+  onToggleLike: (messageId: string, liked: boolean) => void;
   onCall: (type: CallType) => void;
   onBack?: () => void; // DMのときだけ「戻る」ボタンを出す
 };
 
+const GAP_FOR_TIME_MS = 15 * 60 * 1000; // 15分以上あいたら時刻を表示
+
 export default function ChatThread({
-  conversation,
+  title,
+  isGroup,
+  members,
+  me,
+  member,
   messages,
-  typingMemberId,
+  emptyText,
   onSendText,
   onSendPhoto,
   onToggleLike,
   onCall,
   onBack,
 }: Props) {
-  const i18n = useI18n();
-  const { t, memberName, formatChatTime } = i18n;
+  const { t } = useI18n();
   const bottomRef = useRef<HTMLDivElement>(null);
-  const isGroup = conversation.type === "group";
-  const members = conversation.memberIds.map(getMember);
 
   // 新しいメッセージが来たら一番下までスクロール
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [messages.length, typingMemberId]);
+  }, [messages.length]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-white">
@@ -50,49 +58,52 @@ export default function ChatThread({
             <ChevronLeft className="h-7 w-7 text-slate-800" />
           </button>
         )}
-        {isGroup ? (
+        {isGroup && members.length > 0 ? (
           <div className="relative h-11 w-11 shrink-0">
             <span className="absolute left-0 top-0">
-              <Avatar member={members[0]} size="sm" />
+              <Avatar member={me} size="sm" />
             </span>
             <span className="absolute bottom-0 right-0 rounded-full ring-2 ring-white">
-              <Avatar member={members[1]} size="sm" />
+              <Avatar member={members[0]} size="sm" />
             </span>
           </div>
         ) : (
-          <Avatar member={members[0]} />
+          <Avatar member={members[0] ?? me} />
         )}
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[15px] font-semibold text-slate-900">{conversationTitle(conversation, i18n)}</p>
-          <p className="truncate text-xs text-slate-500">
-            {isGroup ? t("chat.members", { n: members.length + 1 }) : t("chat.online")}
-          </p>
+          <p className="truncate text-[15px] font-semibold text-slate-900">{title}</p>
+          {isGroup && <p className="truncate text-xs text-slate-500">{t("chat.members", { n: members.length + 1 })}</p>}
         </div>
-        <button type="button" onClick={() => onCall("voice")} aria-label={t("chat.voiceCall")} className="p-2">
-          <Phone className="h-6 w-6 text-slate-800" />
-        </button>
-        <button type="button" onClick={() => onCall("video")} aria-label={t("chat.videoCall")} className="p-2">
-          <Video className="h-7 w-7 text-slate-800" />
-        </button>
+        {members.length > 0 && (
+          <>
+            <button type="button" onClick={() => onCall("voice")} aria-label={t("chat.voiceCall")} className="p-2">
+              <Phone className="h-6 w-6 text-slate-800" />
+            </button>
+            <button type="button" onClick={() => onCall("video")} aria-label={t("chat.videoCall")} className="p-2">
+              <Video className="h-7 w-7 text-slate-800" />
+            </button>
+          </>
+        )}
       </div>
 
       {/* メッセージ一覧 */}
       <div className="flex-1 overflow-y-auto px-3 py-4">
+        {messages.length === 0 && <p className="mt-10 px-6 text-center text-sm text-slate-400">{emptyText}</p>}
         {messages.map((msg, i) => {
           const prev = messages[i - 1];
           const next = messages[i + 1];
-          const isMine = msg.senderId === currentUserId;
-          const sender = getMember(msg.senderId);
-          const showTime = !prev || prev.time !== msg.time;
+          const isMine = msg.senderId === me.id;
+          const sender = member(msg.senderId);
+          const showTime = !prev || Date.parse(msg.createdAt) - Date.parse(prev.createdAt) > GAP_FOR_TIME_MS;
           const isFirstOfRun = !prev || prev.senderId !== msg.senderId || showTime;
-          const isLastOfRun = !next || next.senderId !== msg.senderId || next.time !== msg.time;
+          const nextShowsTime = next && Date.parse(next.createdAt) - Date.parse(msg.createdAt) > GAP_FOR_TIME_MS;
+          const isLastOfRun = !next || next.senderId !== msg.senderId || nextShowsTime;
+          const liked = msg.likedBy.includes(me.id);
 
           return (
             <div key={msg.id}>
-              {showTime && <p className="my-3 text-center text-xs text-slate-400">{formatChatTime(msg.time)}</p>}
-              {isGroup && !isMine && isFirstOfRun && (
-                <p className="mb-0.5 ml-12 text-xs text-slate-500">{memberName(sender)}</p>
-              )}
+              {showTime && <p className="my-3 text-center text-xs text-slate-400">{messageTime(msg.createdAt)}</p>}
+              {isGroup && !isMine && isFirstOfRun && <p className="mb-0.5 ml-12 text-xs text-slate-500">{sender.name}</p>}
               <div className={`mb-1 flex items-end gap-2 ${isMine ? "justify-end" : ""}`}>
                 {!isMine && (
                   <span className={`w-8 ${isLastOfRun ? "" : "invisible"}`}>
@@ -100,42 +111,21 @@ export default function ChatThread({
                   </span>
                 )}
                 {/* ダブルタップ（ダブルクリック）で ❤️ */}
-                <div className="relative select-none" onDoubleClick={() => onToggleLike(msg.id)}>
-                  <MessageBubble
-                    message={msg}
-                    isMine={isMine}
-                    onCallAgain={() => msg.kind === "call" && onCall(msg.callType)}
-                  />
-                  {msg.liked && (
+                <div className="relative select-none" onDoubleClick={() => onToggleLike(msg.id, liked)}>
+                  <MessageBubble message={msg} isMine={isMine} />
+                  {msg.likedBy.length > 0 && (
                     <span
-                      className={`absolute -bottom-3 rounded-full bg-white px-1 text-xs shadow ${
-                        isMine ? "right-2" : "left-2"
-                      }`}
+                      className={`absolute -bottom-3 rounded-full bg-white px-1 text-xs shadow ${isMine ? "right-2" : "left-2"}`}
                     >
-                      ❤️
+                      ❤️{msg.likedBy.length > 1 ? msg.likedBy.length : ""}
                     </span>
                   )}
                 </div>
               </div>
-              {msg.liked && <div className="h-3" />}
+              {msg.likedBy.length > 0 && <div className="h-3" />}
             </div>
           );
         })}
-
-        {typingMemberId && (
-          <div className="mb-1 flex items-end gap-2">
-            <Avatar member={getMember(typingMemberId)} size="sm" />
-            <div className="flex gap-1 rounded-3xl bg-slate-100 px-4 py-3" aria-label={t("chat.typing")}>
-              {[0, 150, 300].map((delay) => (
-                <span
-                  key={delay}
-                  className="h-2 w-2 animate-bounce rounded-full bg-slate-400"
-                  style={{ animationDelay: `${delay}ms` }}
-                />
-              ))}
-            </div>
-          </div>
-        )}
         <div ref={bottomRef} />
       </div>
 

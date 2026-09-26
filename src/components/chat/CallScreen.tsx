@@ -2,22 +2,23 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Mic, MicOff, PhoneOff, Video, VideoOff, Volume2, VolumeX } from "lucide-react";
-import { currentUserId, getMember } from "@/lib/mockData";
 import { formatDuration, type CallType } from "@/lib/chatData";
+import type { Member } from "@/lib/family";
 import { useI18n } from "@/lib/i18n/useI18n";
-import Avatar from "@/components/timeline/Avatar";
+import Avatar from "@/components/common/MemberAvatar";
 
 type Props = {
   callType: CallType;
   title: string;
-  memberIds: string[]; // 自分以外の参加者
-  onEnd: (connectedSec: number | null) => void; // null = つながる前に終了
+  members: Member[]; // 自分以外の参加者
+  me: Member;
+  onEnd: () => void;
 };
 
 const ANSWER_DELAY_MS = 2500; // 相手が応答するまでの擬似的な待ち時間
 
-// 通話画面（プロトタイプ：相手側は擬似表示、自分のカメラ映像は本物）
-export default function CallScreen({ callType, title, memberIds, onEnd }: Props) {
+// 通話画面（デモ：相手にはつながりません。自分のカメラ映像は本物）
+export default function CallScreen({ callType, title, members, me, onEnd }: Props) {
   const { t } = useI18n();
   const [connected, setConnected] = useState(false);
   const [seconds, setSeconds] = useState(0);
@@ -27,8 +28,6 @@ export default function CallScreen({ callType, title, memberIds, onEnd }: Props)
   const [cameraState, setCameraState] = useState<"pending" | "ready" | "unavailable">("pending");
   const streamRef = useRef<MediaStream | null>(null);
 
-  const members = memberIds.map(getMember);
-  const me = getMember(currentUserId);
   const isVideo = callType === "video";
 
   // 呼び出し → 数秒後に応答
@@ -147,6 +146,9 @@ export default function CallScreen({ callType, title, memberIds, onEnd }: Props)
           <p className="mt-1 text-sm text-white/70">
             {t(isVideo ? "chat.videoCall" : "chat.voiceCall")} · {status}
           </p>
+          <p className="mx-auto mt-2 w-fit rounded-full bg-amber-400/20 px-3 py-1 text-[11px] text-amber-200">
+            {t("call.demoNote")}
+          </p>
         </div>
 
         {/* 1対1ビデオ通話：自分の映像を右上に小さく表示 */}
@@ -173,7 +175,7 @@ export default function CallScreen({ callType, title, memberIds, onEnd }: Props)
         )}
         <button
           type="button"
-          onClick={() => onEnd(connected ? seconds : null)}
+          onClick={onEnd}
           aria-label={t("call.end")}
           className="flex h-14 w-14 items-center justify-center rounded-full bg-rose-500 transition active:scale-95"
         >

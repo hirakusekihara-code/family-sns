@@ -14,3 +14,9 @@ export function supabase(): SupabaseClient {
   }
   return client;
 }
+
+// テーブルがまだ無い（追加の SQL を実行していない）ときは、画面に分かりやすい案内を出す
+export const SETUP_NEEDED = "__setup_needed__";
+export function describeDbError(error: { code?: string; message: string }) {
+  return error.code === "PGRST205" || /schema cache|does not exist/i.test(error.message) ? SETUP_NEEDED : error.message;
+}

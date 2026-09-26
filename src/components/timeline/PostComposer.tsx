@@ -1,56 +1,44 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ImagePlus, Send, X } from "lucide-react";
-import { familyMembers, getMember, photoOptions, type Post } from "@/lib/mockData";
+import { useFamily } from "@/lib/family";
+import { resizePhoto } from "@/lib/profile/image";
 import { useI18n } from "@/lib/i18n/useI18n";
-import Avatar from "./Avatar";
+import MemberAvatar from "@/components/common/MemberAvatar";
 
 type Props = {
-  defaultAuthorId: string;
-  onSubmit: (post: Pick<Post, "authorId" | "text" | "photo">) => void;
+  onSubmit: (text: string, photo: string | null) => Promise<boolean>;
 };
 
-// 新しい投稿を作るフォーム
-export default function PostComposer({ defaultAuthorId, onSubmit }: Props) {
-  const { t, memberName } = useI18n();
-  const [authorId, setAuthorId] = useState(defaultAuthorId);
+// 新しい投稿を作るフォーム（投稿者は自分）
+export default function PostComposer({ onSubmit }: Props) {
+  const { t } = useI18n();
+  const family = useFamily();
   const [text, setText] = useState("");
-  const [photo, setPhoto] = useState<Post["photo"]>();
-  const [showPhotos, setShowPhotos] = useState(false);
+  const [photo, setPhoto] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
-  const canSubmit = text.trim().length > 0;
+  if (!family.ready) return null;
+  const canSubmit = (text.trim().length > 0 || photo !== null) && !busy;
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!canSubmit) return;
-    onSubmit({ authorId, text: text.trim(), photo });
-    setText("");
-    setPhoto(undefined);
-    setShowPhotos(false);
+    setBusy(true);
+    const ok = await onSubmit(text.trim(), photo);
+    setBusy(false);
+    if (ok) {
+      setText("");
+      setPhoto(null);
+    }
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3 rounded-2xl bg-white p-4 shadow-sm">
-      {/* 誰として投稿するか選ぶ */}
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-slate-500">{t("tl.poster")}</span>
-        {familyMembers.map((m) => (
-          <button
-            key={m.id}
-            type="button"
-            onClick={() => setAuthorId(m.id)}
-            className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-              authorId === m.id ? `${m.color} text-white` : "bg-slate-100 text-slate-500"
-            }`}
-          >
-            {memberName(m)}
-          </button>
-        ))}
-      </div>
-
       <div className="flex gap-3">
-        <Avatar member={getMember(authorId)} />
+        <MemberAvatar member={family.me} />
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -61,12 +49,13 @@ export default function PostComposer({ defaultAuthorId, onSubmit }: Props) {
       </div>
 
       {photo && (
-        <div className={`relative flex h-32 items-center justify-center rounded-xl bg-gradient-to-br text-5xl ${photo.gradient}`}>
-          {photo.emoji}
+        <div className="relative overflow-hidden rounded-xl">
+          {/* eslint-disable-next-line @next/next/no-img-element -- 端末で縮小した写真のプレビュー */}
+          <img src={photo} alt="" className="max-h-72 w-full object-cover" />
           <button
             type="button"
-            onClick={() => setPhoto(undefined)}
-            className="absolute right-2 top-2 rounded-full bg-black/40 p-1 text-white"
+            onClick={() => setPhoto(null)}
+            className="absolute right-2 top-2 rounded-full bg-black/50 p-1 text-white"
             aria-label={t("tl.removePhoto")}
           >
             <X className="h-4 w-4" />
@@ -74,30 +63,26 @@ export default function PostComposer({ defaultAuthorId, onSubmit }: Props) {
         </div>
       )}
 
-      {showPhotos && !photo && (
-        <div className="flex gap-2">
-          {photoOptions.map((p) => (
-            <button
-              key={p.emoji}
-              type="button"
-              onClick={() => setPhoto(p)}
-              className={`flex h-12 w-12 items-center justify-center rounded-lg bg-gradient-to-br text-2xl ${p.gradient}`}
-            >
-              {p.emoji}
-            </button>
-          ))}
-        </div>
-      )}
-
       <div className="flex items-center justify-between">
         <button
           type="button"
-          onClick={() => setShowPhotos((v) => !v)}
+          onClick={() => fileRef.current?.click()}
           className="flex items-center gap-1 text-sm text-slate-500 hover:text-indigo-600"
         >
           <ImagePlus className="h-5 w-5" />
           {t("tl.photo")}
         </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={async (e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) setPhoto(await resizePhoto(file));
+          }}
+        />
         <button
           type="submit"
           disabled={!canSubmit}

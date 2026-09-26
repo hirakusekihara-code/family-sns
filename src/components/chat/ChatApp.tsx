@@ -1,118 +1,73 @@
 "use client";
 
-import { useState } from "react";
-import { createId, currentUserId, photoOptions } from "@/lib/mockData";
-import {
-  GROUP_ID,
-  autoReplies,
-  conversationTitle,
-  initialConversations,
-  initialMessages,
-  nowTime,
-  pickRandom,
-  type CallType,
-  type ChatMessage,
-  type Conversation,
-} from "@/lib/chatData";
+import { useEffect, useState } from "react";
+import { useFamily } from "@/lib/family";
+import { conversationOf, unreadCount, useChat, type ConversationId } from "@/lib/chatStore";
+import type { CallType } from "@/lib/chatData";
 import { useI18n } from "@/lib/i18n/useI18n";
+import { SETUP_NEEDED } from "@/lib/supabase/client";
 import LanguageToggle from "@/components/common/LanguageToggle";
 import ChatThread from "./ChatThread";
 import DmList from "./DmList";
 import CallScreen from "./CallScreen";
 
 type Tab = "group" | "dm";
-type ActiveCall = { conversationId: string; callType: CallType };
+type ActiveCall = { conversation: ConversationId; callType: CallType };
 
-// チャット画面全体。メッセージはこの画面の中だけで保持します（再読み込みで元に戻ります）
+// チャット画面全体。メッセージは Supabase に保存され、家族の画面にもすぐ届きます
 export default function ChatApp() {
-  const i18n = useI18n();
-  const { t, lang } = i18n;
+  const family = useFamily();
+  if (!family.ready) return null;
+  return <ChatInner familyId={family.family.id} myId={family.me.id} />;
+}
+
+function ChatInner({ familyId, myId }: { familyId: string; myId: string }) {
+  const { t } = useI18n();
+  const family = useFamily();
+  const chat = useChat(familyId, myId);
   const [tab, setTab] = useState<Tab>("group");
-  const [conversations, setConversations] = useState<Conversation[]>(initialConversations);
-  const [messages, setMessages] = useState<Record<string, ChatMessage[]>>(initialMessages);
-  const [openDmId, setOpenDmId] = useState<string | null>(null);
-  const [typing, setTyping] = useState<Record<string, string | null>>({});
+  const [openDm, setOpenDm] = useState<string | null>(null);
   const [call, setCall] = useState<ActiveCall | null>(null);
 
-  const group = conversations.find((c) => c.id === GROUP_ID)!;
-  const dms = conversations.filter((c) => c.type === "dm");
-  const openDm = conversations.find((c) => c.id === openDmId);
-  const dmUnread = dms.reduce((sum, c) => sum + c.unread, 0);
+  // 今見ている会話（家族グループのタブ、または開いているDM）
+  const viewing: ConversationId | null = openDm ?? (tab === "group" ? "group" : null);
+  const messages = chat.messages ?? [];
+  const latestInView = viewing ? messages.filter((m) => conversationOf(m, myId) === viewing).at(-1)?.id : undefined;
+  const { markRead } = chat;
 
-  function append(conversationId: string, message: ChatMessage) {
-    setMessages((prev) => ({ ...prev, [conversationId]: [...(prev[conversationId] ?? []), message] }));
-  }
+  // 会話を開いている間は、届いたメッセージを既読にする
+  useEffect(() => {
+    if (viewing) markRead(viewing);
+    // markRead は毎回作り直されるので、会話と最新メッセージが変わったときだけ実行
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewing, latestInView]);
 
-  // 相手からの自動返信（プロトタイプで「受信」を体験するため）
-  function scheduleReply(conversation: Conversation) {
-    const memberIds = conversation.memberIds;
-    const replierId = pickRandom(memberIds);
-    const lines = autoReplies[lang][replierId] ?? ["👍"];
-    setTimeout(() => setTyping((t) => ({ ...t, [conversation.id]: replierId })), 600);
-    setTimeout(() => {
-      setTyping((t) => ({ ...t, [conversation.id]: null }));
-      append(conversation.id, {
-        id: createId("msg"),
-        senderId: replierId,
-        time: nowTime(),
-        kind: "text",
-        text: pickRandom(lines),
-      });
-    }, 2200);
-  }
+  if (!family.ready) return null;
+  const { me, others, member } = family;
 
-  function sendText(conversation: Conversation, text: string) {
-    append(conversation.id, { id: createId("msg"), senderId: currentUserId, time: nowTime(), kind: "text", text });
-    scheduleReply(conversation);
-  }
+  const dmUnread = others.reduce((sum, m) => sum + unreadCount(messages, chat.reads, m.id, myId), 0);
+  const groupUnread = unreadCount(messages, chat.reads, "group", myId);
 
-  function sendPhoto(conversation: Conversation) {
-    const photo = pickRandom(photoOptions);
-    append(conversation.id, { id: createId("msg"), senderId: currentUserId, time: nowTime(), kind: "photo", ...photo });
-    scheduleReply(conversation);
-  }
-
-  function toggleLike(conversationId: string, messageId: string) {
-    setMessages((prev) => ({
-      ...prev,
-      [conversationId]: prev[conversationId].map((m) => (m.id === messageId ? { ...m, liked: !m.liked } : m)),
-    }));
-  }
-
-  function openConversation(id: string) {
-    setOpenDmId(id);
-    setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, unread: 0 } : c)));
-  }
-
-  function endCall(connectedSec: number | null) {
-    if (!call) return;
-    append(call.conversationId, {
-      id: createId("msg"),
-      senderId: currentUserId,
-      time: nowTime(),
-      kind: "call",
-      callType: call.callType,
-      durationSec: connectedSec,
-    });
-    setCall(null);
-  }
-
-  function renderThread(conversation: Conversation, onBack?: () => void) {
+  function renderThread(c: ConversationId, onBack?: () => void) {
+    const isGroup = c === "group";
+    const partner = isGroup ? null : member(c);
     return (
       <ChatThread
-        conversation={conversation}
-        messages={messages[conversation.id] ?? []}
-        typingMemberId={typing[conversation.id] ?? null}
-        onSendText={(text) => sendText(conversation, text)}
-        onSendPhoto={() => sendPhoto(conversation)}
-        onToggleLike={(id) => toggleLike(conversation.id, id)}
-        onCall={(callType) => setCall({ conversationId: conversation.id, callType })}
+        title={isGroup ? t("chat.groupName") : partner!.name}
+        isGroup={isGroup}
+        members={isGroup ? others : [partner!]}
+        me={me}
+        member={member}
+        messages={messages.filter((m) => conversationOf(m, myId) === c)}
+        emptyText={isGroup ? t("chat.emptyGroup") : t("chat.emptyDm", { name: partner!.name })}
+        onSendText={(text) => chat.sendText(c, text)}
+        onSendPhoto={(photo) => chat.sendPhoto(c, photo)}
+        onToggleLike={chat.toggleLike}
+        onCall={(callType) => setCall({ conversation: c, callType })}
         onBack={onBack}
       />
     );
   }
-
-  const callConversation = call && conversations.find((c) => c.id === call.conversationId);
 
   return (
     <>
@@ -126,29 +81,41 @@ export default function ChatApp() {
           <div className="mt-2 grid grid-cols-2">
             {(
               [
-                { id: "group", label: t("chat.tab.group"), badge: 0 },
+                { id: "group", label: t("chat.tab.group"), badge: tab === "group" ? 0 : groupUnread },
                 { id: "dm", label: t("chat.tab.dm"), badge: dmUnread },
               ] as const
-            ).map((t) => (
+            ).map((x) => (
               <button
-                key={t.id}
+                key={x.id}
                 type="button"
-                onClick={() => setTab(t.id)}
+                onClick={() => setTab(x.id)}
                 className={`relative flex items-center justify-center gap-1.5 pb-2.5 pt-1 text-[15px] font-semibold transition ${
-                  tab === t.id ? "text-slate-900" : "text-slate-400"
+                  tab === x.id ? "text-slate-900" : "text-slate-400"
                 }`}
               >
-                {t.label}
-                {t.badge > 0 && (
-                  <span className="rounded-full bg-rose-500 px-1.5 text-[11px] font-bold text-white">{t.badge}</span>
+                {x.label}
+                {x.badge > 0 && (
+                  <span className="rounded-full bg-rose-500 px-1.5 text-[11px] font-bold text-white">{x.badge}</span>
                 )}
-                {tab === t.id && <span className="absolute inset-x-6 bottom-0 h-0.5 rounded-full bg-slate-900" />}
+                {tab === x.id && <span className="absolute inset-x-6 bottom-0 h-0.5 rounded-full bg-slate-900" />}
               </button>
             ))}
           </div>
         </header>
 
-        {tab === "group" ? renderThread(group) : <DmList conversations={dms} messages={messages} onOpen={openConversation} />}
+        {chat.error && (
+          <p className="bg-rose-50 px-4 py-2 text-xs text-rose-700" role="alert">
+            {chat.error === SETUP_NEEDED ? t("setup.tablesMissing") : chat.error}
+          </p>
+        )}
+
+        {chat.messages === null ? (
+          <p className="flex-1 pt-10 text-center text-sm text-slate-400">{t("common.loading")}</p>
+        ) : tab === "group" ? (
+          renderThread("group")
+        ) : (
+          <DmList others={others} myId={myId} messages={messages} reads={chat.reads} onOpen={setOpenDm} />
+        )}
       </div>
 
       {/* 以下の全画面表示はボトムナビより手前に出すため、上の枠の外に置いています */}
@@ -156,16 +123,17 @@ export default function ChatApp() {
       {/* DMのトーク画面：インスタのように全画面で開く（ボトムナビも隠れる） */}
       {openDm && (
         <div className="fixed inset-0 z-[60] mx-auto flex max-w-md flex-col bg-white pb-[env(safe-area-inset-bottom)]">
-          {renderThread(openDm, () => setOpenDmId(null))}
+          {renderThread(openDm, () => setOpenDm(null))}
         </div>
       )}
 
-      {call && callConversation && (
+      {call && (
         <CallScreen
           callType={call.callType}
-          title={conversationTitle(callConversation, i18n)}
-          memberIds={callConversation.memberIds}
-          onEnd={endCall}
+          title={call.conversation === "group" ? t("chat.groupName") : member(call.conversation).name}
+          members={call.conversation === "group" ? others : [member(call.conversation)]}
+          me={me}
+          onEnd={() => setCall(null)}
         />
       )}
     </>
