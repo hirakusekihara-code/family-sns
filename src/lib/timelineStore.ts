@@ -2,7 +2,7 @@
 
 // タイムラインのデータ（Supabase に保存。家族が投稿すると自動で最新になります）
 import { useCallback, useEffect, useState } from "react";
-import { describeDbError, supabase } from "@/lib/supabase/client";
+import { describeDbError, refreshPeriodically, supabase } from "@/lib/supabase/client";
 import type { ReactionType } from "@/lib/mockData";
 
 export type TimelineComment = { id: string; authorId: string; text: string; createdAt: string };
@@ -76,8 +76,10 @@ export function useTimeline(familyId: string) {
       .on("postgres_changes", { event: "*", schema: "public", table: "post_comments", filter }, reload)
       .on("postgres_changes", { event: "*", schema: "public", table: "post_reactions", filter }, reload)
       .subscribe();
+    const stopPolling = refreshPeriodically(reload, 60_000);
     return () => {
       supabase().removeChannel(channel);
+      stopPolling();
     };
   }, [familyId, reload]);
 

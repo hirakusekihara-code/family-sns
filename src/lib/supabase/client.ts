@@ -20,3 +20,18 @@ export const SETUP_NEEDED = "__setup_needed__";
 export function describeDbError(error: { code?: string; message: string }) {
   return error.code === "PGRST205" || /schema cache|does not exist/i.test(error.message) ? SETUP_NEEDED : error.message;
 }
+
+// リアルタイム更新が届かない環境の保険：アプリに戻ったとき・一定時間ごとに読み込み直す
+export function refreshPeriodically(reload: () => void, intervalMs: number) {
+  const id = setInterval(() => {
+    if (document.visibilityState === "visible") reload();
+  }, intervalMs);
+  const onVisible = () => {
+    if (document.visibilityState === "visible") reload();
+  };
+  document.addEventListener("visibilitychange", onVisible);
+  return () => {
+    clearInterval(id);
+    document.removeEventListener("visibilitychange", onVisible);
+  };
+}

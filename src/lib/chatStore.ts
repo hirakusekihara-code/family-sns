@@ -2,7 +2,7 @@
 
 // チャットのデータ（Supabase に保存。家族がメッセージを送ると自動で届きます）
 import { useCallback, useEffect, useState } from "react";
-import { describeDbError, supabase } from "@/lib/supabase/client";
+import { describeDbError, refreshPeriodically, supabase } from "@/lib/supabase/client";
 
 // 会話：'group'（家族グループ）または DM 相手のID
 export type ConversationId = "group" | (string & {});
@@ -91,8 +91,10 @@ export function useChat(familyId: string, myId: string) {
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_messages", filter }, reload)
       .on("postgres_changes", { event: "*", schema: "public", table: "message_likes", filter }, reload)
       .subscribe();
+    const stopPolling = refreshPeriodically(reload, 15_000);
     return () => {
       supabase().removeChannel(channel);
+      stopPolling();
     };
   }, [familyId, reload]);
 
