@@ -12,7 +12,7 @@ import {
 } from "@/lib/profile/authStore";
 import { displayNameOf, roleOf, type Profile } from "@/lib/profile/types";
 import { useI18n } from "@/lib/i18n/useI18n";
-import { Field, inputClass, PasswordInput, PrimaryButton } from "@/components/auth/ui";
+import { Field, inputClass, PasswordInput, PrimaryButton, useResultMessage } from "@/components/auth/ui";
 import LanguageToggle from "@/components/common/LanguageToggle";
 import ProfileForm from "./ProfileForm";
 import ProfilePhoto from "./ProfilePhoto";
@@ -21,6 +21,7 @@ import ProfilePhoto from "./ProfilePhoto";
 export default function ProfileApp() {
   const auth = useAuth();
   const { t, lang } = useI18n();
+  const resultMessage = useResultMessage();
   const [editing, setEditing] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -48,8 +49,9 @@ export default function ProfileApp() {
             <ProfileForm
               initial={profile}
               submitLabel={t("pf.save")}
-              onSubmit={(input) => {
-                saveMyProfile(input);
+              onSubmit={async (input) => {
+                const result = await saveMyProfile(input);
+                if (!result.ok) return resultMessage(result);
                 setEditing(false);
                 setNotice(t("pf.saved"));
               }}
@@ -72,9 +74,11 @@ export default function ProfileApp() {
             </div>
             <dl className="mt-4 space-y-2 text-sm">
               <InfoRow icon={<span className="text-xs font-semibold">Aa</span>} label={t("pf.name")} value={profile.name} />
-              {account.email && <InfoRow icon={<Mail className="h-4 w-4" />} label={t("auth.email")} value={account.email} />}
-              {account.loginId && (
-                <InfoRow icon={<KeyRound className="h-4 w-4" />} label={t("auth.loginId")} value={account.loginId} />
+              {/* 子どものアカウントはログインIDを表示（メールは保護者のアドレスをもとにした内部用のもの） */}
+              {profile.loginId ? (
+                <InfoRow icon={<KeyRound className="h-4 w-4" />} label={t("auth.loginId")} value={profile.loginId} />
+              ) : (
+                account.email && <InfoRow icon={<Mail className="h-4 w-4" />} label={t("auth.email")} value={account.email} />
               )}
               {profile.phone && <InfoRow icon={<Phone className="h-4 w-4" />} label={t("pf.phone")} value={profile.phone} />}
               {profile.birthday && (
@@ -133,7 +137,7 @@ export default function ProfileApp() {
           <LanguageToggle />
         </div>
         <p className="mb-3 text-sm text-slate-600">
-          {t("acc.loginWith")}：{account.email ?? account.loginId}
+          {t("acc.loginWith")}：{profile.loginId ?? account.email}
         </p>
         <PasswordSection onChanged={() => setNotice(t("acc.passwordChanged"))} />
         <button
@@ -210,6 +214,7 @@ function InviteCode({ familyName, code }: { familyName: string; code: string }) 
 // 保護者が子どものアカウント（ログインID＋パスワード）を作る
 function ChildAccountSection({ onCreated }: { onCreated: (message: string) => void }) {
   const { t } = useI18n();
+  const resultMessage = useResultMessage();
   const [open, setOpen] = useState(false);
   const [loginId, setLoginId] = useState("");
   const [password, setPassword] = useState("");
@@ -271,7 +276,7 @@ function ChildAccountSection({ onCreated }: { onCreated: (message: string) => vo
             onSubmit={async (input) => {
               const result = await createChildAccount(loginId, password, input);
               if (!result.ok) {
-                setServerError(t(`err.${result.error}`));
+                setServerError(resultMessage(result));
                 return;
               }
               onCreated(t("child.created", { name: input.name, id: loginId.toLowerCase() }));
@@ -291,6 +296,7 @@ function ChildAccountSection({ onCreated }: { onCreated: (message: string) => vo
 
 function PasswordSection({ onChanged }: { onChanged: () => void }) {
   const { t } = useI18n();
+  const resultMessage = useResultMessage();
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
@@ -300,7 +306,7 @@ function PasswordSection({ onChanged }: { onChanged: () => void }) {
     e.preventDefault();
     if (next.length < 8) return setError(t("err.password"));
     const result = await changePassword(current, next);
-    if (!result.ok) return setError(t(`err.${result.error}`));
+    if (!result.ok) return setError(resultMessage(result));
     setCurrent("");
     setNext("");
     setError(null);

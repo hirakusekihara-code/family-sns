@@ -1,16 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronLeft, Users } from "lucide-react";
-import { signIn, signUp, type AuthError } from "@/lib/profile/authStore";
-import type { MessageKey } from "@/lib/i18n/messages";
+import { ChevronLeft, MailCheck, Users } from "lucide-react";
+import { requestPasswordReset, signIn, signUp } from "@/lib/profile/authStore";
 import { useI18n } from "@/lib/i18n/useI18n";
 import LanguageToggle from "@/components/common/LanguageToggle";
-import { Field, inputClass, isEmail, PasswordInput, PrimaryButton, StepIndicator } from "./ui";
+import { Field, inputClass, isEmail, PasswordInput, PrimaryButton, StepIndicator, useResultMessage } from "./ui";
 
 type Mode = "login" | "signup" | "reset";
-
-const errorKey = (e: AuthError) => `err.${e}` as MessageKey;
 
 // ログインしていないときの画面（ログイン・新規登録・パスワード再設定）
 export default function AuthScreens() {
@@ -40,13 +37,9 @@ function Logo() {
   );
 }
 
-function PrototypeNote() {
-  const { t } = useI18n();
-  return <p className="mt-6 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">{t("auth.prototypeNote")}</p>;
-}
-
 function LoginForm({ onSignup, onReset }: { onSignup: () => void; onReset: () => void }) {
   const { t } = useI18n();
+  const resultMessage = useResultMessage();
   const [kind, setKind] = useState<"email" | "loginId">("email");
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -58,7 +51,7 @@ function LoginForm({ onSignup, onReset }: { onSignup: () => void; onReset: () =>
     setBusy(true);
     const result = await signIn(kind, identifier, password);
     setBusy(false);
-    if (!result.ok) setError(t(errorKey(result.error)));
+    setError(resultMessage(result));
   }
 
   return (
@@ -118,7 +111,6 @@ function LoginForm({ onSignup, onReset }: { onSignup: () => void; onReset: () =>
           {t("auth.signup")}
         </button>
       </div>
-      <PrototypeNote />
     </>
   );
 }
@@ -126,6 +118,8 @@ function LoginForm({ onSignup, onReset }: { onSignup: () => void; onReset: () =>
 // 新規登録 ステップ1：メールとパスワード（ステップ2・3は AuthGate が続けて表示）
 function SignupForm({ onBack }: { onBack: () => void }) {
   const { t } = useI18n();
+  const resultMessage = useResultMessage();
+  const [sentTo, setSentTo] = useState<string | null>(null); // 確認メールを送った先
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -146,7 +140,21 @@ function SignupForm({ onBack }: { onBack: () => void }) {
     setBusy(true);
     const result = await signUp(email, password);
     setBusy(false);
-    if (!result.ok) setServerError(t(errorKey(result.error)));
+    setServerError(resultMessage(result));
+    if (result.ok && result.needsConfirmation) setSentTo(email.trim());
+  }
+
+  if (sentTo) {
+    return (
+      <div className="mt-16 flex flex-col items-center gap-4 text-center">
+        <MailCheck className="h-14 w-14 text-indigo-500" />
+        <h1 className="text-2xl font-bold text-slate-900">{t("auth.checkEmailTitle")}</h1>
+        <p className="text-sm text-slate-600">{t("auth.checkEmailBody", { email: sentTo })}</p>
+        <button type="button" onClick={onBack} className="mt-4 text-sm font-semibold text-indigo-600">
+          {t("auth.login")}
+        </button>
+      </div>
+    );
   }
 
   return (
@@ -188,16 +196,16 @@ function SignupForm({ onBack }: { onBack: () => void }) {
       <button type="button" onClick={onBack} className="mt-6 w-full text-center text-sm text-slate-500">
         {t("auth.haveAccount")} <span className="font-semibold text-indigo-600">{t("auth.login")}</span>
       </button>
-      <PrototypeNote />
     </>
   );
 }
 
 function ResetForm({ onBack }: { onBack: () => void }) {
   const { t } = useI18n();
+  const resultMessage = useResultMessage();
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
-  const [showError, setShowError] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   return (
     <>
@@ -208,19 +216,22 @@ function ResetForm({ onBack }: { onBack: () => void }) {
       <h1 className="mb-2 text-2xl font-bold text-slate-900">{t("auth.resetTitle")}</h1>
       <p className="mb-6 text-sm text-slate-500">{t("auth.resetBody")}</p>
       {sent ? (
-        <p className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">{t("auth.resetSent", { email })}</p>
+        <p className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800" role="status">
+          {t("auth.resetSent", { email })}
+        </p>
       ) : (
         <form
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
-            // Supabase 接続後：ここで再設定メールを送ります
-            if (isEmail(email)) setSent(true);
-            else setShowError(true);
+            if (!isEmail(email)) return setError(t("err.email"));
+            const result = await requestPasswordReset(email);
+            setError(resultMessage(result));
+            if (result.ok) setSent(true);
           }}
           className="space-y-4"
           noValidate
         >
-          <Field label={t("auth.email")} error={showError && !isEmail(email) ? t("err.email") : null}>
+          <Field label={t("auth.email")} error={error}>
             <input
               type="email"
               inputMode="email"

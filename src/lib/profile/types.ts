@@ -72,15 +72,14 @@ export type Profile = {
   birthday: string; // "2015-04-01"
   color: (typeof themeColors)[number];
   shareLocation: boolean;
-  createdBy: string | null; // 親が作った子どものアカウントなら、その親のプロフィールID
+  loginId: string | null; // 保護者が作った子どものアカウントのログインID
+  createdBy: string | null; // 保護者が作った子どものアカウントなら、その保護者のプロフィールID
 };
 
+// ログイン中のアカウント（Supabase のユーザー）
 export type Account = {
   id: string;
-  email: string | null; // メールでログインする人
-  loginId: string | null; // 親が作った子どものアカウント（ID でログイン）
-  passwordHash: string;
-  profileId: string | null; // プロフィールを作るまでは null
+  email: string | null;
 };
 
 // アプリ内での呼び名：表示名 → 続柄の呼び名（パパ など）→ 名前 の順に使う

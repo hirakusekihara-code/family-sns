@@ -22,7 +22,8 @@ type Props = {
   initial: ProfileDraft;
   relationOptions?: readonly Relation[]; // 子どものアカウントでは「息子・娘」だけ
   submitLabel: string;
-  onSubmit: (input: ProfileInput) => void | Promise<void>;
+  // 保存に失敗したときはエラー文を返すと、フォームの下に表示します
+  onSubmit: (input: ProfileInput) => void | string | null | Promise<void | string | null>;
   extraFields?: React.ReactNode; // ログインIDなど、フォームの最初に足す欄
   extraValid?: boolean; // 追加欄の入力チェック結果
   onInvalidSubmit?: () => void;
@@ -42,6 +43,7 @@ export default function ProfileForm({
   const [draft, setDraft] = useState<ProfileDraft>(initial);
   const [showErrors, setShowErrors] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const update = (patch: Partial<ProfileDraft>) => setDraft((d) => ({ ...d, ...patch }));
@@ -62,7 +64,13 @@ export default function ProfileForm({
     }
     setSaving(true);
     try {
-      await onSubmit({ ...draft, relation: draft.relation!, name: draft.name.trim(), displayName: draft.displayName.trim() });
+      const error = await onSubmit({
+        ...draft,
+        relation: draft.relation!,
+        name: draft.name.trim(),
+        displayName: draft.displayName.trim(),
+      });
+      setSubmitError(error || null);
     } finally {
       setSaving(false);
     }
@@ -243,6 +251,11 @@ export default function ProfileForm({
         </button>
       </div>
 
+      {submitError && (
+        <p className="text-sm text-rose-600" role="alert">
+          {submitError}
+        </p>
+      )}
       <PrimaryButton type="submit" disabled={saving}>
         {submitLabel}
       </PrimaryButton>

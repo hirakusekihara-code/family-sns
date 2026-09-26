@@ -6,7 +6,7 @@ import { createFamily, emptyProfile, joinFamily, saveMyProfile } from "@/lib/pro
 import { useI18n } from "@/lib/i18n/useI18n";
 import ProfileForm from "@/components/profile/ProfileForm";
 import LanguageToggle from "@/components/common/LanguageToggle";
-import { Field, inputClass, PrimaryButton, StepIndicator } from "./ui";
+import { Field, inputClass, PrimaryButton, StepIndicator, useResultMessage } from "./ui";
 
 function Shell({ step, title, body, children }: { step: 2 | 3; title: string; body: string; children: React.ReactNode }) {
   return (
@@ -25,12 +25,13 @@ function Shell({ step, title, body, children }: { step: 2 | 3; title: string; bo
 // 新規登録 ステップ2：プロフィール（続柄は必須）
 export function ProfileSetup() {
   const { t } = useI18n();
+  const resultMessage = useResultMessage();
   return (
     <Shell step={2} title={t("pf.setupTitle")} body={t("pf.setupBody")}>
       <ProfileForm
         initial={{ ...emptyProfile(), relation: null }}
         submitLabel={t("auth.next")}
-        onSubmit={(input) => saveMyProfile(input)}
+        onSubmit={async (input) => resultMessage(await saveMyProfile(input))}
       />
     </Shell>
   );
@@ -39,21 +40,21 @@ export function ProfileSetup() {
 // 新規登録 ステップ3：家族グループを作る or 招待コードで参加
 export function FamilySetup() {
   const { t } = useI18n();
+  const resultMessage = useResultMessage();
+  const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<"create" | "join">("create");
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (mode === "create") {
-      if (!name.trim()) return setError(t("err.required"));
-      createFamily(name);
-    } else {
-      if (!code.trim()) return setError(t("err.required"));
-      const result = joinFamily(code);
-      if (!result.ok) setError(t(`err.${result.error}`));
-    }
+    const value = mode === "create" ? name : code;
+    if (!value.trim()) return setError(t("err.required"));
+    setBusy(true);
+    const result = mode === "create" ? await createFamily(name) : await joinFamily(code);
+    setBusy(false);
+    setError(resultMessage(result));
   }
 
   return (
@@ -103,7 +104,9 @@ export function FamilySetup() {
             />
           </Field>
         )}
-        <PrimaryButton type="submit">{t(mode === "create" ? "fam.createButton" : "fam.joinButton")}</PrimaryButton>
+        <PrimaryButton type="submit" disabled={busy}>
+          {t(mode === "create" ? "fam.createButton" : "fam.joinButton")}
+        </PrimaryButton>
       </form>
     </Shell>
   );

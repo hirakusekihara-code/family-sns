@@ -2,6 +2,7 @@
 
 import { cloneElement, isValidElement, useId, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
+import type { MessageKey } from "@/lib/i18n/messages";
 import { useI18n } from "@/lib/i18n/useI18n";
 
 // フォームの共通部品（ラベル・入力欄・ボタン）
@@ -103,3 +104,13 @@ export function StepIndicator({ step }: { step: 1 | 2 | 3 }) {
 }
 
 export const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
+
+// 操作結果のエラーを、画面に出す文章にする
+export function useResultMessage() {
+  const { t } = useI18n();
+  return (result: { ok: true } | { ok: false; error: string; detail?: string }) => {
+    if (result.ok) return null;
+    const text = t(`err.${result.error}` as MessageKey);
+    return result.error === "unknown" && result.detail ? `${text}（${result.detail}）` : text;
+  };
+}

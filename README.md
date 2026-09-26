@@ -15,7 +15,12 @@ Next.js (App Router) + Tailwind CSS + Lucide React で作る、家族専用SNS�
 
 アプリを使うには **ログイン** が必要です。はじめての方は「新規登録」→ プロフィール（続柄は必須）→ 家族グループの作成／招待コードで参加、の3ステップで登録します。
 メールアドレスのないお子さまは、保護者がマイページで「ログインID＋パスワード」のアカウントを作成します。
-※ 現在は仮の仕組みで、登録内容はその端末のブラウザにだけ保存されます（Supabase 接続後に家族全員で共有されます）。
+ログイン・プロフィール・家族グループは **Supabase** に保存され、家族のどの端末からでも同じ内容が見られます。
+
+### Supabase の準備（最初に1回だけ）
+1. Supabase の「SQL Editor」で [`supabase/schema.sql`](supabase/schema.sql) の内容を貼り付けて「Run」を押す
+2. Vercel の Settings → Environment Variables に `SUPABASE_SECRET_KEY`（Supabase の Secret key）を追加して再デプロイ（子どものアカウントに必要）
+3. Supabase の Authentication → URL Configuration の Site URL / Redirect URLs に公開URLを登録
 
 各画面の右上のボタンで、表示言語を **日本語 / English** に切り替えられます（選んだ言語はブラウザに保存されます）。
 
@@ -62,7 +67,9 @@ npm run dev
 ## フォルダ構成
 
 ```
+supabase/schema.sql       # データベースの設計図（Supabase の SQL Editor で実行）
 src/
+├── app/api/              # サーバーで動く処理（子どものアカウント作成・ログイン）
 ├── app/                  # 画面（ページ）。フォルダ名がそのままURLになります
 │   ├── layout.tsx        # 全画面共通の枠（スマホ幅の枠＋ボトムナビ）
 │   ├── page.tsx          # タイムライン（/）
@@ -85,7 +92,8 @@ src/
     ├── calendarData.ts   # 予定・家計簿の擬似データと日付計算
     ├── eventStore.ts     # 予定データの保管場所（カレンダーとマップで共有）
     ├── mapData.ts        # 地図上のスポットの位置・家族の現在地（擬似データ）
-    ├── profile/          # プロフィール・家族の型と、ログインの仕組み（今は仮保存）
+    ├── profile/          # プロフィール・家族の型と、ログインの仕組み（Supabase）
+    ├── supabase/         # Supabase への接続（ブラウザ用・サーバー用）
     └── i18n/             # 日本語 / 英語の対訳表（messages.ts）と切替の仕組み
 ```
 
