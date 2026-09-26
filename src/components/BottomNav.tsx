@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Map, CalendarDays, MessageCircle } from "lucide-react";
+import { Home, Map, CalendarDays, MessageCircle, CircleUser } from "lucide-react";
 import { useI18n } from "@/lib/i18n/useI18n";
 
 const tabs = [
@@ -10,6 +10,7 @@ const tabs = [
   { href: "/map", labelKey: "nav.map", icon: Map },
   { href: "/calendar", labelKey: "nav.calendar", icon: CalendarDays },
   { href: "/chat", labelKey: "nav.chat", icon: MessageCircle },
+  { href: "/profile", labelKey: "nav.me", icon: CircleUser },
 ] as const;
 
 export default function BottomNav() {
@@ -18,7 +19,7 @@ export default function BottomNav() {
 
   return (
     <nav className="fixed bottom-0 left-1/2 z-50 w-full max-w-md -translate-x-1/2 border-t border-slate-200 bg-white/90 backdrop-blur pb-[env(safe-area-inset-bottom)]">
-      <ul className="grid grid-cols-4">
+      <ul className="grid grid-cols-5">
         {tabs.map(({ href, labelKey, icon: Icon }) => {
           const isActive = href === "/" ? pathname === "/" : pathname.startsWith(href);
           return (

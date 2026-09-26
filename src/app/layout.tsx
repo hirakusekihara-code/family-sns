@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import BottomNav from "@/components/BottomNav";
+import AuthGate from "@/components/auth/AuthGate";
 import HtmlLang from "@/components/common/HtmlLang";
 import "./globals.css";
 
@@ -26,10 +27,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html lang="ja" className={`${geistSans.variable} h-full antialiased`}>
       <body className="min-h-full bg-slate-200">
         {/* スマホ幅（最大 448px）の枠。PCで開いても中央にスマホ風に表示されます */}
-        <div className="relative mx-auto min-h-screen max-w-md bg-slate-50 pb-20 shadow-xl">
-          {children}
+        <div className="relative mx-auto min-h-screen max-w-md bg-slate-50 shadow-xl">
+          {/* ログインして家族グループに参加するまでは、アプリ本体を表示しません */}
+          <AuthGate>
+            <div className="pb-20">{children}</div>
+            <BottomNav />
+          </AuthGate>
         </div>
-        <BottomNav />
         <HtmlLang />
       </body>
     </html>
