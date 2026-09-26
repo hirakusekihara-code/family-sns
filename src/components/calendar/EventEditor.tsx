@@ -12,7 +12,8 @@ import {
   Wallet,
   X,
 } from "lucide-react";
-import { createId, spots } from "@/lib/mockData";
+import { createId } from "@/lib/mockData";
+import type { Place, PlaceInfo } from "@/lib/placesStore";
 import {
   attachmentKinds,
   categories,
@@ -33,14 +34,16 @@ type Props = {
   isNew: boolean;
   ledgers: Ledger[]; // 自分が使える帳簿
   allLedgers: Ledger[];
+  places: Place[]; // 家族がマップで登録した場所
+  placeOf: (id: string | undefined) => PlaceInfo | undefined;
   onSave: (event: CalendarEvent) => Promise<string | null>; // 失敗したらエラー文
   onDelete: (event: CalendarEvent) => Promise<string | null>;
   onClose: () => void;
 };
 
 // 予定の登録・編集（Googleカレンダー風の全画面シート）
-export default function EventEditor({ event, isNew, ledgers, allLedgers, onSave, onDelete, onClose }: Props) {
-  const { t, spotName, categoryLabel, ledgerName } = useI18n();
+export default function EventEditor({ event, isNew, ledgers, allLedgers, places, placeOf, onSave, onDelete, onClose }: Props) {
+  const { t, categoryLabel, ledgerName } = useI18n();
   const family = useFamily();
   const [draft, setDraft] = useState<CalendarEvent>(event);
   const [showErrors, setShowErrors] = useState(false);
@@ -71,6 +74,11 @@ export default function EventEditor({ event, isNew, ledgers, allLedgers, onSave,
     ledgerOptions.push(findLedger(allLedgers, draft.money.ledgerId));
   }
   const canUseMoney = ledgers.length > 0 || !!draft.money;
+
+  // 選べる場所：家族が登録した場所（＋以前の予定で使っていた場所）
+  const placeOptions: PlaceInfo[] = [...places];
+  const current = placeOf(draft.spotId);
+  if (current && !placeOptions.some((p) => p.id === current.id)) placeOptions.push(current);
 
   const titleMissing = draft.title.trim() === "";
   const amountMissing = !!draft.money && draft.money.amount <= 0;
@@ -247,7 +255,7 @@ export default function EventEditor({ event, isNew, ledgers, allLedgers, onSave,
         {/* 場所 */}
         <Row icon={MapPin} label={t("ed.place")}>
           <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
-            {spots.map((s) => (
+            {placeOptions.map((s) => (
               <button
                 key={s.id}
                 type="button"
@@ -261,10 +269,11 @@ export default function EventEditor({ event, isNew, ledgers, allLedgers, onSave,
                     : "border-slate-200 text-slate-600"
                 }`}
               >
-                {s.emoji} {spotName(s)}
+                {s.emoji} {s.name}
               </button>
             ))}
           </div>
+          {placeOptions.length === 0 && <p className="text-xs text-slate-400">{t("ed.noPlaces")}</p>}
           {!draft.spotId && (
             <input
               value={draft.place}

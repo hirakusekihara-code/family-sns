@@ -1,5 +1,5 @@
 import { ArrowDownRight, ArrowUpRight, MapPin, Paperclip } from "lucide-react";
-import { getSpot } from "@/lib/mockData";
+import type { PlaceInfo } from "@/lib/placesStore";
 import { useFamily } from "@/lib/family";
 import { formatYen, type CalendarEvent } from "@/lib/calendarData";
 import { useI18n } from "@/lib/i18n/useI18n";
@@ -7,18 +7,19 @@ import Avatar from "@/components/common/MemberAvatar";
 
 type Props = {
   event: CalendarEvent;
+  placeOf: (id: string | undefined) => PlaceInfo | undefined;
   onOpen: () => void;
 };
 
 // 予定1件分の行（予定リスト用）
-export default function EventRow({ event, onOpen }: Props) {
-  const { t, spotName, categoryLabel } = useI18n();
+export default function EventRow({ event, placeOf, onOpen }: Props) {
+  const { t, categoryLabel } = useI18n();
   const family = useFamily();
   if (!family.ready) return null;
   const assignee = family.member(event.assigneeId);
   const creator = family.member(event.createdById);
-  const spot = getSpot(event.spotId);
-  const place = spot ? `${spot.emoji} ${spotName(spot)}` : event.place;
+  const spot = placeOf(event.spotId);
+  const place = spot ? `${spot.emoji} ${spot.name}` : event.place;
 
   return (
     <button

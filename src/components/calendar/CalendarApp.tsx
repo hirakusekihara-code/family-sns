@@ -14,6 +14,7 @@ import {
 } from "@/lib/calendarData";
 import { useFamily } from "@/lib/family";
 import { useCalendar } from "@/lib/calendarStore";
+import { makePlaceLookup, usePlaces } from "@/lib/placesStore";
 import { SETUP_NEEDED } from "@/lib/supabase/client";
 import { useI18n } from "@/lib/i18n/useI18n";
 import LanguageToggle from "@/components/common/LanguageToggle";
@@ -40,9 +41,11 @@ export default function CalendarApp() {
 }
 
 function CalendarInner({ familyId }: { familyId: string }) {
-  const { t, monthTitle, formatDate } = useI18n();
+  const i18n = useI18n();
+  const { t, monthTitle, formatDate } = i18n;
   const family = useFamily();
   const calendar = useCalendar(familyId);
+  const { places } = usePlaces(familyId); // マップで登録した場所
   const [today] = useState(() => toDateKey(new Date()));
   const [tab, setTab] = useState<Tab>("calendar");
   const [filter, setFilter] = useState<Filter>("all");
@@ -58,6 +61,7 @@ function CalendarInner({ familyId }: { familyId: string }) {
   if (!family.ready) return null;
   const { me, members, member } = family;
   const events = calendar.events ?? [];
+  const placeOf = makePlaceLookup(places, i18n);
   const allLedgers = ledgersFor(members);
   // 見られる帳簿（保護者：すべて、子ども：自分のお小遣い帳、親族：なし）
   const ledgerOptions = visibleLedgers(allLedgers, me);
@@ -214,7 +218,7 @@ function CalendarInner({ familyId }: { familyId: string }) {
                 {t("cal.noEvents")} · <span className="text-indigo-600">{t("cal.addEvent")}</span>
               </button>
             ) : (
-              dayEvents.map((e) => <EventRow key={e.id} event={e} onOpen={() => setEditor({ event: e, isNew: false })} />)
+              dayEvents.map((e) => <EventRow key={e.id} event={e} placeOf={placeOf} onOpen={() => setEditor({ event: e, isNew: false })} />)
             )}
           </section>
         </>
@@ -250,6 +254,8 @@ function CalendarInner({ familyId }: { familyId: string }) {
           isNew={editor.isNew}
           ledgers={ledgerOptions}
           allLedgers={allLedgers}
+          places={places ?? []}
+          placeOf={placeOf}
           onSave={saveEvent}
           onDelete={deleteEvent}
           onClose={() => setEditor(null)}

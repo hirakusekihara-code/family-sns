@@ -8,7 +8,7 @@ Next.js (App Router) + Tailwind CSS + Lucide React で作る、家族専用SNS�
 | タブ | URL | 内容 |
 | --- | --- | --- |
 | タイムライン | `/` | 家族の投稿・コメント・リアクション |
-| マップ | `/map` | 家族の現在地、カレンダーで場所を入れた予定のポップアップ・通知、GPSでの現在地取得 |
+| マップ | `/map` | 本物の地図（OpenStreetMap）に家族の現在地・登録した場所・場所つきの予定を表示。場所の登録、Googleマップでの道案内 |
 | カレンダー | `/calendar` | 家族の予定（担当・場所・お金・添付ファイル）、家計簿・お小遣い帳、PL（収支報告書）のPDF出力 |
 | チャット | `/chat` | 家族グループチャット・個別DM・音声／ビデオ通話（擬似） |
 | マイページ | `/profile` | プロフィール（顔写真・続柄・名前など）、家族グループと招待コード、子どものアカウント作成、パスワード変更、ログアウト |
@@ -18,7 +18,7 @@ Next.js (App Router) + Tailwind CSS + Lucide React で作る、家族専用SNS�
 ログイン・プロフィール・家族グループは **Supabase** に保存され、家族のどの端末からでも同じ内容が見られます。
 
 ### Supabase の準備（最初に1回だけ）
-1. Supabase の「SQL Editor」で [`supabase/schema.sql`](supabase/schema.sql) → [`02_timeline_chat.sql`](supabase/02_timeline_chat.sql) → [`03_calendar_map.sql`](supabase/03_calendar_map.sql) の順に、内容を貼り付けて「Run」を押す
+1. Supabase の「SQL Editor」で [`supabase/schema.sql`](supabase/schema.sql) → [`02_timeline_chat.sql`](supabase/02_timeline_chat.sql) → [`03_calendar_map.sql`](supabase/03_calendar_map.sql) → [`04_places.sql`](supabase/04_places.sql) の順に、内容を貼り付けて「Run」を押す
 2. Vercel の Settings → Environment Variables に `SUPABASE_SECRET_KEY`（Supabase の Secret key）を追加して再デプロイ（子どものアカウントに必要）
 3. Supabase の Authentication → URL Configuration の Site URL / Redirect URLs に公開URLを登録
 
@@ -70,6 +70,7 @@ npm run dev
 supabase/schema.sql       # データベースの設計図：ログイン・プロフィール・家族（Supabase の SQL Editor で実行）
 supabase/02_timeline_chat.sql # データベースの設計図：タイムライン・チャット
 supabase/03_calendar_map.sql  # データベースの設計図：カレンダー・家計簿・添付ファイル・現在地
+supabase/04_places.sql        # データベースの設計図：よく行く場所（マップに登録）
 src/
 ├── app/api/              # サーバーで動く処理（子どものアカウント作成・ログイン）
 ├── app/                  # 画面（ページ）。フォルダ名がそのままURLになります
