@@ -113,7 +113,9 @@ function MapInner({ familyId }: { familyId: string }) {
 
       {/* 通知バナー */}
       <div className="px-3 pb-2 pt-1">
-        {upcoming ? (
+        {calendar.events === null ? (
+          <p className="rounded-2xl bg-white px-3 py-2.5 text-xs text-slate-400 shadow-sm">{t("common.loading")}</p>
+        ) : upcoming ? (
           <button
             type="button"
             onClick={() => setSelection({ kind: "spot", id: upcoming.spotId! })}

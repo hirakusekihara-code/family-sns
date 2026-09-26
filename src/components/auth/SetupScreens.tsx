@@ -25,11 +25,13 @@ function Shell({ step, title, body, children }: { step: 2 | 3; title: string; bo
 // 新規登録 ステップ2：プロフィール（続柄は必須）
 export function ProfileSetup() {
   const { t } = useI18n();
+  // テーマカラーの初期値は家族で重なりにくいよう、ランダムに選ぶ（あとで変更できます）
+  const [initial] = useState(() => ({ ...emptyProfile(crypto.getRandomValues(new Uint8Array(1))[0]), relation: null }));
   const resultMessage = useResultMessage();
   return (
     <Shell step={2} title={t("pf.setupTitle")} body={t("pf.setupBody")}>
       <ProfileForm
-        initial={{ ...emptyProfile(), relation: null }}
+        initial={initial}
         submitLabel={t("auth.next")}
         onSubmit={async (input) => resultMessage(await saveMyProfile(input))}
       />

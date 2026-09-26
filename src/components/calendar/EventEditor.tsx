@@ -92,7 +92,9 @@ export default function EventEditor({ event, isNew, ledgers, allLedgers, onSave,
     const current = draft.money;
     const preferred = defaultLedgerFor(member(draft.assigneeId));
     const ledgerId = current?.ledgerId ?? (ledgers.some((l) => l.id === preferred) ? preferred : ledgers[0].id);
-    const category = current && categories[type].includes(current.category) ? current.category : categories[type][0];
+    // 科目の初期値：お小遣い帳への入金なら「お小遣い」、それ以外は一覧の先頭
+    const fallback = type === "income" && ledgerId.startsWith("allowance-") ? "allowance" : categories[type][0];
+    const category = current && categories[type].includes(current.category) ? current.category : fallback;
     update({ money: { type, amount: current?.amount ?? 0, category, ledgerId } });
   }
 
