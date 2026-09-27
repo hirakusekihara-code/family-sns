@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "PolyVoice Live",
+  "short_name": "PolyVoice",
+  "version": "0.1.0",
+  "description": "Google Meet 上の発話をリアルタイムで認識・翻訳し、字幕としてオーバーレイ表示します（日本語 / 英語 / タガログ語 / セブアノ語）。",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://meet.google.com/*",
+    "https://translate.googleapis.com/*",
+    "https://api.mymemory.translated.net/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "PolyVoice Live",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://meet.google.com/*"],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}

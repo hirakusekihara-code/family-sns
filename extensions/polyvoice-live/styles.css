@@ -1,0 +1,283 @@
+/*
+ * PolyVoice Live - Meet 上のフローティング字幕
+ * すべて #polyvoice-live-root 配下に限定し、Meet 本体のスタイルに影響させない。
+ */
+
+#polyvoice-live-root {
+  --pvl-bg: rgba(18, 20, 26, 0.62);
+  --pvl-bg-strong: rgba(18, 20, 26, 0.78);
+  --pvl-border: rgba(255, 255, 255, 0.14);
+  --pvl-text: #ffffff;
+  --pvl-text-sub: rgba(232, 234, 237, 0.72);
+  --pvl-text-dim: rgba(232, 234, 237, 0.5);
+  --pvl-accent: #8ab4f8;
+  --pvl-ok: #34d399;
+  --pvl-warn: #fbbf24;
+  --pvl-error: #f87171;
+
+  position: fixed;
+  left: 50%;
+  bottom: 104px; /* Meet 下部のコントロールバーと重ならない位置 */
+  transform: translateX(-50%);
+  z-index: 9999;
+  width: min(880px, calc(100vw - 32px));
+  pointer-events: none; /* パネル外のクリックは Meet に通す */
+  font-family: "Google Sans", "Hiragino Sans", "Noto Sans JP", "Segoe UI", Roboto, system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--pvl-text);
+  text-align: left;
+  letter-spacing: normal;
+}
+
+#polyvoice-live-root,
+#polyvoice-live-root * {
+  box-sizing: border-box;
+}
+
+#polyvoice-live-root.pvl-hidden,
+#polyvoice-live-root .pvl-hidden {
+  display: none !important;
+}
+
+#polyvoice-live-root .pvl-panel {
+  pointer-events: auto;
+  margin: 0 auto;
+  background: var(--pvl-bg);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid var(--pvl-border);
+  border-radius: 18px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+  transition: background-color 0.2s ease;
+}
+
+#polyvoice-live-root .pvl-panel:hover {
+  background: var(--pvl-bg-strong);
+}
+
+/* ---- header ---- */
+
+#polyvoice-live-root .pvl-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+  color: var(--pvl-text-sub);
+  white-space: nowrap;
+}
+
+#polyvoice-live-root.pvl-minimized .pvl-header {
+  border-bottom: none;
+}
+
+#polyvoice-live-root .pvl-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--pvl-text-dim);
+}
+
+#polyvoice-live-root .pvl-dot[data-state="listening"] {
+  background: var(--pvl-ok);
+  box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.6);
+  animation: pvl-pulse 1.8s ease-out infinite;
+}
+
+#polyvoice-live-root .pvl-dot[data-state="starting"] {
+  background: var(--pvl-warn);
+}
+
+#polyvoice-live-root .pvl-dot[data-state="error"] {
+  background: var(--pvl-error);
+}
+
+#polyvoice-live-root .pvl-title {
+  flex: none;
+  font-weight: 600;
+  color: var(--pvl-text);
+  letter-spacing: 0.02em;
+}
+
+#polyvoice-live-root .pvl-langs {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(138, 180, 248, 0.16);
+  color: var(--pvl-accent);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+#polyvoice-live-root .pvl-status {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#polyvoice-live-root .pvl-status[data-state="error"] {
+  color: var(--pvl-error);
+}
+
+#polyvoice-live-root .pvl-actions {
+  flex: none;
+  display: flex;
+  gap: 4px;
+}
+
+#polyvoice-live-root .pvl-btn {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--pvl-text-sub);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+#polyvoice-live-root .pvl-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--pvl-text);
+}
+
+#polyvoice-live-root .pvl-btn:focus-visible {
+  outline: 2px solid var(--pvl-accent);
+  outline-offset: 1px;
+}
+
+/* ---- body ---- */
+
+#polyvoice-live-root .pvl-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 18px 14px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+#polyvoice-live-root.pvl-minimized .pvl-body {
+  display: none;
+}
+
+#polyvoice-live-root .pvl-placeholder {
+  color: var(--pvl-text-dim);
+  font-size: 14px;
+  text-align: center;
+  padding: 4px 0;
+}
+
+#polyvoice-live-root .pvl-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+#polyvoice-live-root .pvl-lines:empty {
+  display: none;
+}
+
+#polyvoice-live-root .pvl-line {
+  animation: pvl-fade-in 0.22s ease-out;
+}
+
+/* 古い行ほど薄く表示して最新行を目立たせる */
+#polyvoice-live-root .pvl-line:not(:last-child) {
+  opacity: 0.6;
+}
+
+#polyvoice-live-root .pvl-original {
+  font-size: 13px;
+  color: var(--pvl-text-sub);
+  margin-bottom: 2px;
+  word-break: break-word;
+}
+
+#polyvoice-live-root .pvl-translated {
+  font-size: 21px;
+  font-weight: 600;
+  color: var(--pvl-text);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  word-break: break-word;
+}
+
+#polyvoice-live-root .pvl-line[data-status="pending"] .pvl-translated {
+  color: var(--pvl-text-dim);
+  font-weight: 400;
+  font-size: 16px;
+  font-style: italic;
+}
+
+#polyvoice-live-root .pvl-line[data-status="error"] .pvl-translated {
+  color: var(--pvl-error);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+#polyvoice-live-root .pvl-interim {
+  font-size: 17px;
+  font-style: italic;
+  color: var(--pvl-text-sub);
+  border-left: 2px solid var(--pvl-accent);
+  padding-left: 10px;
+  word-break: break-word;
+}
+
+#polyvoice-live-root .pvl-interim.pvl-empty {
+  display: none;
+}
+
+@keyframes pvl-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.6);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(52, 211, 153, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0);
+  }
+}
+
+@keyframes pvl-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 640px) {
+  #polyvoice-live-root {
+    bottom: 88px;
+  }
+
+  #polyvoice-live-root .pvl-translated {
+    font-size: 18px;
+  }
+
+  #polyvoice-live-root .pvl-status {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #polyvoice-live-root .pvl-dot[data-state="listening"],
+  #polyvoice-live-root .pvl-line {
+    animation: none;
+  }
+}
