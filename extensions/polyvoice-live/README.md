@@ -1,15 +1,15 @@
-# PolyVoice Live (Phase 2)
+# PolyVoice Live (v0.3)
 
-Google Meet 上で**自分の発話（マイク）と相手の発話（Meet タブの音声）**をリアルタイムに認識し、それぞれ相手・自分の言語へ翻訳してフローティング字幕として表示する Chrome 拡張機能（Manifest V3）です。
+Google Meet 上で**自分の発話（マイク）と相手の発話（Meet タブの音声）**を、また **YouTube などの Web 動画の再生音声（タブの音声）**をリアルタイムに認識・翻訳してフローティング字幕として表示する Chrome 拡張機能（Manifest V3）です。
 Gemini API キーを設定すると、セブアノ語（Bisaya / Bislish）・タガログ語（Taglish）の口語やコードスイッチングに強い LLM 翻訳に切り替わります。
 
 ## ファイル構成
 
 | ファイル | 役割 |
 | --- | --- |
-| `manifest.json` | MV3 定義。`tabCapture` / `offscreen` 権限、Meet への content script 注入、翻訳 API・Gemini API の host 許可 |
+| `manifest.json` | MV3 定義。`tabCapture` / `offscreen` 権限、全 http/https ページへの content script 注入、host 許可 |
 | `languages.js` | 言語定義と設定の既定値（content / popup / offscreen / background で共有） |
-| `content.js` | 字幕オーバーレイ、自分のマイク認識、相手の認識イベントの表示（You = 青 / Partner = 緑） |
+| `content.js` | 字幕オーバーレイ（必要になるまで DOM を作らない・全画面対応）、自分のマイク認識（Meet のみ）、タブ音声の認識イベントの表示（You = 青 / Partner・Video = 緑） |
 | `background.js` | Service Worker。ハイブリッド翻訳（Gemini ⇄ 無料 API）、LLM プロンプトの枠組み、会話コンテキスト、相手音声キャプチャの制御と中継 |
 | `offscreen.html` / `offscreen.js` | Meet タブ音声の取得・再生、相手の音声認識（Web Speech にタブ音声を入力 / Gemini 用の発話区間切り出し） |
 | `popup.html` / `popup.js` | 言語・ON/OFF・相手音声キャプチャ・翻訳エンジン・Gemini API キー・モデル・用語集の設定 |
@@ -19,9 +19,19 @@ Gemini API キーを設定すると、セブアノ語（Bisaya / Bislish）・�
 
 1. `chrome://extensions` → 「デベロッパーモード」ON
 2. 「パッケージ化されていない拡張機能を読み込む」でこのフォルダを選択（フェーズ1から更新する場合は、ファイルを差し替えて拡張機能カードの ↻ 再読み込み）
-3. 開いている Meet のタブを再読み込み
+3. 開いている Meet / 動画サイトのタブを再読み込み
 
-## 使い方
+v0.3 で「すべての Web サイトのデータの読み取りと変更」の権限が追加されます。字幕の表示と、ポップアップでタブの URL（Meet かどうか）を判定するために使います。字幕 DOM は翻訳 ON かつ Meet の会議画面、またはタブ音声キャプチャ中のタブにだけ作られます。
+
+## 使い方（YouTube などの Web 動画）
+
+1. 動画ページでツールバーの PolyVoice Live アイコンを開く
+2. **相手・動画の言語**（動画の言語）と**自分の言語**（字幕の言語）を選ぶ
+3. **「タブ音声（動画）のキャプチャを開始」**を押す（翻訳 ON も自動で有効になります）
+4. 動画を再生すると「Video」の緑の字幕が流れます。マイク認識は動作しません
+5. 全画面表示でも字幕はプレーヤー内に表示されます。同じタブで次の動画に移ってもキャプチャは継続し、字幕の × か「停止」で終了します
+
+## 使い方（Google Meet）
 
 1. Meet の会議画面でツールバーの PolyVoice Live アイコンを開く
 2. **自分の言語**と**相手の言語**を選び、右上のトグルを ON（自分の声の字幕）
@@ -69,6 +79,11 @@ Gemini API キーを設定すると、セブアノ語（Bisaya / Bislish）・�
 - 言語を追加する場合は `languages.js` の `LANGUAGES` と `LANGUAGE_PROFILES` に 1 エントリずつ追加します
 
 ## 既知の制約
+
+- 自分のマイク認識は Google Meet の会議画面（`meet.google.com/xxx-xxxx-xxx`）でのみ動作します。動画サイトではタブ音声のみを字幕化します。
+- `chrome://` や Chrome ウェブストアなど、拡張機能が動作できないページではキャプチャできません。
+- `<video>` 要素そのものを全画面にするサイトでは、字幕が全画面の上に表示されません（YouTube のようにプレーヤー要素を全画面にするサイトは表示されます）。
+- 音楽や効果音が大きい動画では Web Speech の認識精度が落ちます。Gemini 音声認識の方が安定します。
 
 - 自分のマイク認識（Meet ページ内）と相手のタブ音声認識（offscreen）を同時に Web Speech で動かせるかは Chrome のバージョンや環境に依存します。相手側がエラーになる場合は Gemini 音声認識を選んでください。
 - Gemini 音声認識は発話の区切り（約 0.7 秒の無音）ごとに送るため、途中経過は表示されず 1〜3 秒程度遅れて字幕になります。

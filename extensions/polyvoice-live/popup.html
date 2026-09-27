@@ -362,7 +362,7 @@
     <header>
       <h1>
         PolyVoice Live
-        <small>Google Meet 双方向リアルタイム翻訳字幕</small>
+        <small>Google Meet・Web 動画のリアルタイム翻訳字幕</small>
       </h1>
       <span class="switch">
         <input type="checkbox" id="enabled" role="switch" aria-label="翻訳字幕のON/OFF" />
@@ -370,9 +370,7 @@
       </span>
     </header>
 
-    <p class="note" id="noteMeet" hidden>
-      Google Meet の会議画面（meet.google.com/xxx-xxxx-xxx）で開いてください。
-    </p>
+    <p class="note" id="noteTab" hidden></p>
 
     <div class="lang-row">
       <label class="field">
@@ -381,14 +379,14 @@
       </label>
       <button id="swap" type="button" title="自分と相手の言語を入れ替え" aria-label="自分と相手の言語を入れ替え">⇄</button>
       <label class="field">
-        <span><span class="who partner">Partner</span> 相手の言語</span>
+        <span><span class="who partner">Partner</span> 相手・動画の言語</span>
         <select id="targetLang"></select>
       </label>
     </div>
 
     <label class="option">
       <input type="checkbox" id="captureSelf" />
-      自分の声（マイク）を認識して相手の言語に翻訳
+      自分の声（マイク）を認識して相手の言語に翻訳（Meet のみ）
     </label>
     <label class="option">
       <input type="checkbox" id="showOriginal" />
@@ -396,17 +394,18 @@
     </label>
 
     <section class="stack" aria-labelledby="partnerHeading">
-      <h2 id="partnerHeading">相手の音声（Meet タブの音声）</h2>
+      <h2 id="partnerHeading">タブの音声（Meet の相手 / YouTube などの動画）</h2>
       <div class="status" id="partnerStatus" data-state="off">
         <span class="dot"></span><span id="partnerStatusText">未キャプチャ</span>
       </div>
-      <button type="button" class="action primary" id="partnerToggle">相手の音声キャプチャを開始</button>
+      <button type="button" class="action primary" id="partnerToggle">タブ音声キャプチャを開始</button>
       <label class="field">
-        相手の音声の認識エンジン
+        タブ音声の認識エンジン
         <select id="partnerEngine"></select>
       </label>
       <p class="hint">
-        開始すると Chrome に「このタブを共有中」と表示されます。相手の声はそのまま聞こえます。
+        開始すると Chrome に「このタブを共有中」と表示されます。音声はそのまま聞こえます。
+        YouTube などでは、このボタンだけで動画の音声が「相手・動画の言語 → 自分の言語」の字幕になります。
       </p>
     </section>
 

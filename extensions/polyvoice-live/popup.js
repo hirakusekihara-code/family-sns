@@ -51,6 +51,25 @@ function isMeetTab(tab) {
   return Boolean(tab && tab.url && tab.url.startsWith("https://meet.google.com/"));
 }
 
+// content script を注入できる通常の Web ページ（chrome:// や拡張機能ページは不可）
+function isCapturableTab(tab) {
+  return Boolean(tab && tab.url && /^https?:\/\//.test(tab.url));
+}
+
+function renderTabNote() {
+  const note = $("noteTab");
+  if (!isCapturableTab(activeTab)) {
+    note.textContent = "このページでは使えません。Google Meet や YouTube などの Web ページで開いてください。";
+    note.hidden = false;
+  } else if (!isMeetTab(activeTab)) {
+    note.textContent =
+      "このサイトでは「タブ音声（動画）のキャプチャを開始」で、再生中の動画の音声を翻訳字幕にできます（マイク認識は Meet の会議画面のみ）。";
+    note.hidden = false;
+  } else {
+    note.hidden = true;
+  }
+}
+
 function setStatus(elId, textId, kind, text) {
   $(elId).dataset.state = kind;
   $(textId).textContent = text;
@@ -97,12 +116,15 @@ function renderKeyStatus(message, kind) {
 }
 
 function renderPartner() {
-  const onMeet = isMeetTab(activeTab);
+  const capturable = isCapturableTab(activeTab);
   const otherTab = partnerState.active && activeTab && partnerState.tabId !== activeTab.id;
   const button = $("partnerToggle");
+  const what = isMeetTab(activeTab) ? "相手の音声" : "タブ音声（動画）";
 
-  button.disabled = !onMeet && !partnerState.active;
-  button.textContent = partnerState.active ? "相手の音声キャプチャを停止" : "相手の音声キャプチャを開始";
+  button.disabled = !capturable && !partnerState.active;
+  button.textContent = partnerState.active
+    ? `${otherTab ? "別のタブの" : ""}キャプチャを停止`
+    : `${what}のキャプチャを開始`;
   button.classList.toggle("stop", partnerState.active);
 
   let text;
@@ -113,7 +135,7 @@ function renderPartner() {
   } else if (partnerState.kind === "error" || partnerState.message) {
     text = partnerState.message;
   } else {
-    text = onMeet ? "未キャプチャ" : "Meet のタブで開始できます";
+    text = capturable ? "未キャプチャ" : "Web ページのタブで開始できます";
     kind = "off";
   }
   setStatus("partnerStatus", "partnerStatusText", kind, text);
@@ -222,7 +244,7 @@ async function togglePartner() {
       if (res && res.state) partnerState = res.state;
       return;
     }
-    if (!isMeetTab(activeTab)) throw new Error("Google Meet のタブで開始してください");
+    if (!isCapturableTab(activeTab)) throw new Error("このページではタブ音声をキャプチャできません");
     partnerState = { ...partnerState, kind: "starting", message: "起動中…" };
     renderPartner();
     // popup を開く操作がユーザー操作として扱われるため、ここで streamId を取得する
@@ -252,8 +274,8 @@ async function init() {
   } catch (_) {
     activeTab = null;
   }
-  // host_permissions に meet.google.com があるため、Meet タブなら url が取得できる
-  $("noteMeet").hidden = isMeetTab(activeTab);
+  // host_permissions (http/https) があるため、Web ページなら url が取得できる
+  renderTabNote();
 
   await refreshKey();
   renderSettings(await chrome.storage.sync.get(DEFAULT_SETTINGS));

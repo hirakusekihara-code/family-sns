@@ -1,15 +1,18 @@
 /*
- * PolyVoice Live - content script (Google Meet)
+ * PolyVoice Live - content script（全 http/https ページに注入）
  *
- * 自分 (You):
+ * 自分 (You) ※ Google Meet の会議画面のみ:
  *   マイク → Web Speech API (interimResults) → 途中経過を字幕表示
  *   → 文末確定 (isFinal) → background.js で「自分の言語 → 相手の言語」に翻訳
  *
- * 相手 (Partner):
- *   offscreen document がタブ音声を認識し、background.js 経由で PVL_PARTNER_EVENT が届く
- *   → 「相手の言語 → 自分の言語」に翻訳（Gemini 音声認識モードでは翻訳済みで届く）
+ * 相手 (Partner) / 動画 (Video):
+ *   ポップアップで「タブ音声キャプチャ」を開始したタブでは、offscreen document が
+ *   タブ音声を認識し、background.js 経由で PVL_PARTNER_EVENT が届く
+ *   → 「相手・動画の言語 → 自分の言語」に翻訳（Gemini 音声認識モードでは翻訳済みで届く）
+ *   Meet 以外（YouTube など）では、この経路だけで字幕を表示する。
  *
- * DOM は createElement / textContent のみで組み立てる（Meet は Trusted Types を
+ * 字幕 DOM は必要になるまで作らない（全ページに注入されるため）。
+ * DOM は createElement / textContent のみで組み立てる（Meet / YouTube は Trusted Types を
  * 強制しているため innerHTML は使わない）。
  */
 (() => {
@@ -24,8 +27,8 @@
   const MAX_LINES = 4;
   const LINE_TTL_MS = 30000;
   const MAX_RESTART_DELAY_MS = 8000;
+  const MEET_HOST = "meet.google.com";
   const MEETING_PATH = /^\/[a-z]{3}-[a-z]{4}-[a-z]{3}(?:$|[/?#])/i;
-  const SPEAKER_LABELS = Object.freeze({ self: "You", partner: "Partner" });
   const ENGINE_LABELS = Object.freeze({ browser: "Web Speech", gemini: "Gemini" });
 
   const SpeechRecognitionImpl = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -52,6 +55,24 @@
 
   function lang(id) {
     return LANGUAGES[id] || LANGUAGES["en-US"];
+  }
+
+  function isMeetPage() {
+    return location.hostname === MEET_HOST;
+  }
+
+  function isMeetingRoom() {
+    return isMeetPage() && MEETING_PATH.test(location.pathname);
+  }
+
+  // Meet では会話の相手、それ以外のサイトでは動画などのタブ音声
+  function speakerLabel(speaker) {
+    if (speaker === "self") return "You";
+    return isMeetPage() ? "Partner" : "Video";
+  }
+
+  function partnerName() {
+    return isMeetPage() ? "相手" : "動画";
   }
 
   // self: 自分の言語 → 相手の言語 / partner: 相手の言語 → 自分の言語
@@ -96,14 +117,28 @@
   function interimRow(speaker) {
     const row = el("div", "pvl-interim pvl-empty");
     row.dataset.speaker = speaker;
-    const tag = el("span", "pvl-speaker", SPEAKER_LABELS[speaker]);
+    const tag = el("span", "pvl-speaker", speakerLabel(speaker));
     const text = el("span", "pvl-interim-text");
     row.append(tag, text);
-    return { row, text };
+    return { row, tag, text };
+  }
+
+  // 全画面表示中は全画面要素の中に置かないと字幕が見えない（YouTube のプレーヤーなど）。
+  // <video> 自体が全画面の場合は子要素を描画できないため body に置く。
+  function overlayHost() {
+    const fs = document.fullscreenElement;
+    return fs && fs.tagName !== "VIDEO" ? fs : document.body;
+  }
+
+  function mountOverlay() {
+    if (!ui.root) return;
+    const host = overlayHost();
+    if (host && ui.root.parentNode !== host) host.appendChild(ui.root);
   }
 
   function ensureOverlay() {
     if (ui.root && ui.root.isConnected) return;
+    if (!document.body) return;
 
     const root = el("div", "pvl-root pvl-hidden");
     root.id = "polyvoice-live-root";
@@ -133,13 +168,11 @@
     list.setAttribute("aria-live", "polite");
     const interimSelf = interimRow("self");
     const interimPartner = interimRow("partner");
-    const placeholder = el("div", "pvl-placeholder", "話し始めると、ここに字幕が表示されます");
+    const placeholder = el("div", "pvl-placeholder");
     body.append(placeholder, list, interimPartner.row, interimSelf.row);
 
     panel.append(header, body);
     root.append(panel);
-    document.body.appendChild(root);
-
     Object.assign(ui, {
       root,
       status,
@@ -149,13 +182,15 @@
       chips: { self, partner },
       interims: { self: interimSelf, partner: interimPartner },
     });
+    mountOverlay();
     updateHeader();
     renderInterims();
     renderLines();
   }
 
+  // 自分のマイク認識は Meet の会議画面だけで動かす（動画サイトでは不要）
   function selfEnabled() {
-    return Boolean(state.settings.enabled && state.settings.captureSelf);
+    return Boolean(state.settings.enabled && state.settings.captureSelf) && isMeetingRoom();
   }
 
   function statusText() {
@@ -166,7 +201,7 @@
     if (state.partner.active || state.partner.kind === "error") {
       parts.push({
         error: state.partner.kind === "error",
-        text: state.partner.message ? `相手: ${state.partner.message}` : "",
+        text: state.partner.message ? `${partnerName()}: ${state.partner.message}` : "",
       });
     }
     // エラーを先頭に出す
@@ -183,7 +218,7 @@
     for (const speaker of ["self", "partner"]) {
       const { from, to } = direction(speaker);
       const chip = ui.chips[speaker];
-      let text = `${SPEAKER_LABELS[speaker]} ${lang(from).short}→${lang(to).short}`;
+      let text = `${speakerLabel(speaker)} ${lang(from).short}→${lang(to).short}`;
       let kind;
       if (speaker === "self") {
         kind = selfEnabled() ? state.self.kind : "off";
@@ -192,13 +227,19 @@
         kind = state.partner.active ? state.partner.kind : state.partner.kind === "error" ? "error" : "off";
         if (state.partner.active && state.partner.engine) text += ` · ${ENGINE_LABELS[state.partner.engine] || ""}`;
         chip.chip.title = state.partner.active
-          ? `相手の音声: ${state.partner.message}`
-          : "相手の音声: 未キャプチャ（ポップアップから開始）";
+          ? `${partnerName()}の音声: ${state.partner.message}`
+          : `${partnerName()}の音声: 未キャプチャ（ポップアップから開始）`;
       }
       chip.label.textContent = text;
       chip.dot.dataset.state = kind;
       chip.chip.dataset.state = kind;
+      ui.interims[speaker].tag.textContent = speakerLabel(speaker);
     }
+    // Meet 以外ではマイク認識を使わないため「You」チップを出さない
+    ui.chips.self.chip.classList.toggle("pvl-hidden", !isMeetPage());
+    ui.placeholder.textContent = isMeetPage()
+      ? "話し始めると、ここに字幕が表示されます"
+      : "タブの音声が流れると、ここに翻訳字幕が表示されます";
 
     const status = statusText();
     ui.status.textContent = status.text;
@@ -254,7 +295,7 @@
       row.dataset.status = line.status;
       row.dataset.speaker = line.speaker;
 
-      const tag = el("span", "pvl-speaker", SPEAKER_LABELS[line.speaker]);
+      const tag = el("span", "pvl-speaker", speakerLabel(line.speaker));
       const content = el("div", "pvl-line-content");
       if (state.settings.showOriginal && line.original) {
         content.append(el("div", "pvl-original", line.original));
@@ -360,7 +401,8 @@
       engine: partner.engine || null,
     };
     if (!state.partner.active) setInterim("partner", "");
-    updateHeader();
+    // Meet 以外のサイトでは、タブ音声キャプチャの開始・終了で字幕の表示/非表示が変わる
+    reconcile();
   }
 
   function handlePartnerEvent(message) {
@@ -578,16 +620,23 @@
   // 設定と状態の同期
   // ---------------------------------------------------------------------------
 
-  function isMeetingRoom() {
-    return MEETING_PATH.test(location.pathname);
+  // 字幕を表示する条件: 翻訳 ON かつ
+  //   - Meet の会議画面にいる、または
+  //   - このタブでタブ音声キャプチャが動いている（YouTube など任意のサイト。失敗時はエラー表示のため残す）
+  // 自分のマイク認識は Meet の会議画面かつ captureSelf が ON のときだけ。
+  function overlayWanted() {
+    if (!state.settings.enabled) return false;
+    if (isMeetingRoom() || state.partner.active) return true;
+    return !isMeetPage() && state.partner.kind === "error";
   }
 
-  // 字幕は「ON かつ会議画面」で表示。自分のマイク認識はさらに captureSelf が ON のときだけ。
   function reconcile() {
-    ensureOverlay();
-    const overlayActive = Boolean(state.settings.enabled) && isMeetingRoom();
-    const selfActive = overlayActive && Boolean(state.settings.captureSelf);
-    ui.root.classList.toggle("pvl-hidden", !overlayActive);
+    const overlayActive = overlayWanted();
+    const selfActive = overlayActive && selfEnabled();
+
+    // 全ページに注入されるため、字幕 DOM は初めて必要になったときに作る
+    if (overlayActive) ensureOverlay();
+    if (ui.root) ui.root.classList.toggle("pvl-hidden", !overlayActive);
 
     if (selfActive && !state.running && !state.fatal) {
       state.running = true;
@@ -621,8 +670,6 @@
   }
 
   async function init() {
-    ensureOverlay();
-
     let stored = DEFAULT_SETTINGS;
     try {
       stored = await chrome.storage.sync.get(DEFAULT_SETTINGS);
@@ -659,7 +706,10 @@
       })
       .catch(() => {});
 
-    // Meet は SPA のため、待機画面 → 会議画面の遷移は URL の変化で検知する
+    // 全画面の切り替えに合わせて字幕を全画面要素の中へ移動する
+    document.addEventListener("fullscreenchange", mountOverlay);
+
+    // Meet / YouTube は SPA のため、画面遷移は URL の変化で検知する
     let lastPath = location.pathname;
     setInterval(() => {
       if (location.pathname !== lastPath) {
