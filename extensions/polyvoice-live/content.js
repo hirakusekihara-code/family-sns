@@ -1,9 +1,13 @@
 /*
  * PolyVoice Live - content script (Google Meet)
  *
- * 流れ:
- *   マイク音声 → Web Speech API (interimResults) → 途中経過をそのまま字幕表示
- *   → 文末確定 (isFinal) → background.js に翻訳依頼 → 翻訳文を字幕に反映
+ * 自分 (You):
+ *   マイク → Web Speech API (interimResults) → 途中経過を字幕表示
+ *   → 文末確定 (isFinal) → background.js で「自分の言語 → 相手の言語」に翻訳
+ *
+ * 相手 (Partner):
+ *   offscreen document がタブ音声を認識し、background.js 経由で PVL_PARTNER_EVENT が届く
+ *   → 「相手の言語 → 自分の言語」に翻訳（Gemini 音声認識モードでは翻訳済みで届く）
  *
  * DOM は createElement / textContent のみで組み立てる（Meet は Trusted Types を
  * 強制しているため innerHTML は使わない）。
@@ -14,47 +18,47 @@
   if (window.__polyVoiceLiveInjected) return;
   window.__polyVoiceLiveInjected = true;
 
-  const DEFAULT_SETTINGS = Object.freeze({
-    enabled: false,
-    sourceLang: "ja-JP",
-    targetLang: "en-US",
-    showOriginal: true,
-    provider: "google",
-  });
+  const { LANGUAGES, DEFAULT_SETTINGS } = globalThis.PVL_SHARED;
+  const SETTING_KEYS = Object.keys(DEFAULT_SETTINGS);
 
-  // speech: Web Speech API に渡す言語コードの候補。先頭から試し、
-  // "language-not-supported" が返ったら次の候補へフォールバックする。
-  // Chrome はタガログ語を "fil-PH" として扱うため tl-PH より先に試す。
-  // セブアノ語は Chrome の音声認識で未対応のことが多いため fil-PH → en-US へ落とす。
-  const LANGUAGES = Object.freeze({
-    "ja-JP": { label: "日本語", short: "JA", speech: ["ja-JP"] },
-    "en-US": { label: "English", short: "EN", speech: ["en-US"] },
-    "tl-PH": { label: "Tagalog", short: "TL", speech: ["fil-PH", "tl-PH"] },
-    "ceb-PH": { label: "Cebuano", short: "CEB", speech: ["ceb-PH", "fil-PH", "en-US"] },
-  });
-
-  const MAX_LINES = 3;
+  const MAX_LINES = 4;
   const LINE_TTL_MS = 30000;
   const MAX_RESTART_DELAY_MS = 8000;
   const MEETING_PATH = /^\/[a-z]{3}-[a-z]{4}-[a-z]{3}(?:$|[/?#])/i;
+  const SPEAKER_LABELS = Object.freeze({ self: "You", partner: "Partner" });
+  const ENGINE_LABELS = Object.freeze({ browser: "Web Speech", gemini: "Gemini" });
 
   const SpeechRecognitionImpl = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   const state = {
     settings: { ...DEFAULT_SETTINGS },
+    // 自分のマイク認識
     recognition: null,
     running: false, // 認識を継続したい状態か（onend 後に自動再開するか）
     speechIndex: 0, // LANGUAGES[sourceLang].speech のどの候補を使っているか
     restartTimer: null,
     errorStreak: 0,
     fatal: null, // 自動復旧できないエラー（マイク拒否など）
-    status: { kind: "idle", message: "" },
-    lines: [], // { id, original, translated, status: "pending" | "done" | "error", createdAt }
+    self: { kind: "off", message: "" },
+    // 相手のタブ音声（background から通知）
+    partner: { active: false, kind: "off", message: "", engine: null },
+    interim: { self: "", partner: "" },
+    lines: [], // { key, speaker, original, translated, status, createdAt }
     seq: 0,
     minimized: false,
   };
 
   const ui = {};
+
+  function lang(id) {
+    return LANGUAGES[id] || LANGUAGES["en-US"];
+  }
+
+  // self: 自分の言語 → 相手の言語 / partner: 相手の言語 → 自分の言語
+  function direction(speaker) {
+    const { sourceLang, targetLang } = state.settings;
+    return speaker === "partner" ? { from: targetLang, to: sourceLang } : { from: sourceLang, to: targetLang };
+  }
 
   // ---------------------------------------------------------------------------
   // UI
@@ -80,6 +84,24 @@
     return btn;
   }
 
+  function speakerChip(speaker) {
+    const chip = el("span", "pvl-chip");
+    chip.dataset.speaker = speaker;
+    const dot = el("span", "pvl-dot");
+    const label = el("span", "pvl-chip-label");
+    chip.append(dot, label);
+    return { chip, dot, label };
+  }
+
+  function interimRow(speaker) {
+    const row = el("div", "pvl-interim pvl-empty");
+    row.dataset.speaker = speaker;
+    const tag = el("span", "pvl-speaker", SPEAKER_LABELS[speaker]);
+    const text = el("span", "pvl-interim-text");
+    row.append(tag, text);
+    return { row, text };
+  }
+
   function ensureOverlay() {
     if (ui.root && ui.root.isConnected) return;
 
@@ -91,9 +113,9 @@
     const panel = el("div", "pvl-panel");
 
     const header = el("div", "pvl-header");
-    const dot = el("span", "pvl-dot");
     const title = el("span", "pvl-title", "PolyVoice Live");
-    const langs = el("span", "pvl-langs");
+    const self = speakerChip("self");
+    const partner = speakerChip("partner");
     const status = el("span", "pvl-status");
     const actions = el("div", "pvl-actions");
     const minimizeBtn = iconButton("–", "最小化", () => {
@@ -104,57 +126,125 @@
       chrome.storage.sync.set({ enabled: false }).catch(() => {});
     });
     actions.append(minimizeBtn, closeBtn);
-    header.append(dot, title, langs, status, actions);
+    header.append(title, self.chip, partner.chip, status, actions);
 
     const body = el("div", "pvl-body");
     const list = el("div", "pvl-lines");
     list.setAttribute("aria-live", "polite");
-    const interim = el("div", "pvl-interim pvl-empty");
+    const interimSelf = interimRow("self");
+    const interimPartner = interimRow("partner");
     const placeholder = el("div", "pvl-placeholder", "話し始めると、ここに字幕が表示されます");
-    body.append(placeholder, list, interim);
+    body.append(placeholder, list, interimPartner.row, interimSelf.row);
 
     panel.append(header, body);
     root.append(panel);
     document.body.appendChild(root);
 
-    Object.assign(ui, { root, panel, dot, langs, status, minimizeBtn, list, interim, placeholder });
+    Object.assign(ui, {
+      root,
+      status,
+      minimizeBtn,
+      list,
+      placeholder,
+      chips: { self, partner },
+      interims: { self: interimSelf, partner: interimPartner },
+    });
     updateHeader();
+    renderInterims();
     renderLines();
+  }
+
+  function selfEnabled() {
+    return Boolean(state.settings.enabled && state.settings.captureSelf);
+  }
+
+  function statusText() {
+    const parts = [];
+    if (selfEnabled() || state.fatal) {
+      parts.push({ error: state.self.kind === "error", text: state.self.message ? `自分: ${state.self.message}` : "" });
+    }
+    if (state.partner.active || state.partner.kind === "error") {
+      parts.push({
+        error: state.partner.kind === "error",
+        text: state.partner.message ? `相手: ${state.partner.message}` : "",
+      });
+    }
+    // エラーを先頭に出す
+    parts.sort((a, b) => Number(b.error) - Number(a.error));
+    return {
+      text: parts.map((p) => p.text).filter(Boolean).join(" / "),
+      error: parts.some((p) => p.error),
+    };
   }
 
   function updateHeader() {
     if (!ui.root) return;
-    const { sourceLang, targetLang } = state.settings;
-    const src = LANGUAGES[sourceLang] || LANGUAGES["en-US"];
-    const dst = LANGUAGES[targetLang] || LANGUAGES["en-US"];
-    ui.langs.textContent = `${src.short} → ${dst.short}`;
-    ui.langs.title = `${src.label} → ${dst.label}`;
-    ui.dot.dataset.state = state.status.kind;
-    ui.status.textContent = state.status.message;
-    ui.status.title = state.status.message;
-    ui.status.dataset.state = state.status.kind;
+
+    for (const speaker of ["self", "partner"]) {
+      const { from, to } = direction(speaker);
+      const chip = ui.chips[speaker];
+      let text = `${SPEAKER_LABELS[speaker]} ${lang(from).short}→${lang(to).short}`;
+      let kind;
+      if (speaker === "self") {
+        kind = selfEnabled() ? state.self.kind : "off";
+        chip.chip.title = selfEnabled() ? `自分の音声: ${state.self.message}` : "自分の音声認識: OFF";
+      } else {
+        kind = state.partner.active ? state.partner.kind : state.partner.kind === "error" ? "error" : "off";
+        if (state.partner.active && state.partner.engine) text += ` · ${ENGINE_LABELS[state.partner.engine] || ""}`;
+        chip.chip.title = state.partner.active
+          ? `相手の音声: ${state.partner.message}`
+          : "相手の音声: 未キャプチャ（ポップアップから開始）";
+      }
+      chip.label.textContent = text;
+      chip.dot.dataset.state = kind;
+      chip.chip.dataset.state = kind;
+    }
+
+    const status = statusText();
+    ui.status.textContent = status.text;
+    ui.status.title = status.text;
+    ui.status.dataset.state = status.error ? "error" : "ok";
     ui.root.classList.toggle("pvl-minimized", state.minimized);
     ui.minimizeBtn.textContent = state.minimized ? "+" : "–";
     ui.minimizeBtn.title = state.minimized ? "展開" : "最小化";
   }
 
-  function setStatus(kind, message = "") {
-    state.status = { kind, message };
+  function setSelfStatus(kind, message = "") {
+    state.self = { kind, message };
     updateHeader();
   }
 
-  function setInterim(text) {
-    if (!ui.interim) return;
-    const value = text.trim();
-    ui.interim.textContent = value;
-    ui.interim.classList.toggle("pvl-empty", !value);
+  function setInterim(speaker, text) {
+    state.interim[speaker] = (text || "").trim();
+    renderInterims();
+  }
+
+  function renderInterims() {
+    if (!ui.interims) return;
+    for (const speaker of ["self", "partner"]) {
+      const { row, text } = ui.interims[speaker];
+      const value = state.interim[speaker];
+      text.textContent = value;
+      row.classList.toggle("pvl-empty", !value);
+    }
     updatePlaceholder();
   }
 
   function updatePlaceholder() {
     if (!ui.placeholder) return;
-    const hasContent = state.lines.length > 0 || !ui.interim.classList.contains("pvl-empty");
+    const hasContent = state.lines.length > 0 || Boolean(state.interim.self || state.interim.partner);
     ui.placeholder.classList.toggle("pvl-hidden", hasContent);
+  }
+
+  function lineText(line) {
+    switch (line.status) {
+      case "transcribing":
+        return "音声を解析中…";
+      case "pending":
+        return "翻訳中…";
+      default:
+        return line.translated;
+    }
   }
 
   function renderLines() {
@@ -162,15 +252,15 @@
     const nodes = state.lines.map((line) => {
       const row = el("div", "pvl-line");
       row.dataset.status = line.status;
-      row.dataset.id = String(line.id);
+      row.dataset.speaker = line.speaker;
 
-      if (state.settings.showOriginal) {
-        row.append(el("div", "pvl-original", line.original));
+      const tag = el("span", "pvl-speaker", SPEAKER_LABELS[line.speaker]);
+      const content = el("div", "pvl-line-content");
+      if (state.settings.showOriginal && line.original) {
+        content.append(el("div", "pvl-original", line.original));
       }
-
-      let translatedText = line.translated;
-      if (line.status === "pending") translatedText = "翻訳中…";
-      row.append(el("div", "pvl-translated", translatedText));
+      content.append(el("div", "pvl-translated", lineText(line)));
+      row.append(tag, content);
       return row;
     });
     ui.list.replaceChildren(...nodes);
@@ -178,17 +268,42 @@
   }
 
   // ---------------------------------------------------------------------------
-  // 翻訳
+  // 字幕行と翻訳
   // ---------------------------------------------------------------------------
+
+  function addLine(fields) {
+    const line = {
+      key: `self:${++state.seq}`,
+      speaker: "self",
+      original: "",
+      translated: "",
+      status: "pending",
+      createdAt: Date.now(),
+      ...fields,
+    };
+    state.lines.push(line);
+    if (state.lines.length > MAX_LINES) state.lines.splice(0, state.lines.length - MAX_LINES);
+    renderLines();
+    return line;
+  }
+
+  function findLine(key) {
+    return state.lines.find((line) => line.key === key) || null;
+  }
+
+  function removeLine(line) {
+    state.lines = state.lines.filter((l) => l !== line);
+    renderLines();
+  }
 
   function isContextInvalidated(err) {
     return /context invalidated/i.test(String(err && err.message));
   }
 
   async function translateLine(line) {
-    const { sourceLang, targetLang, provider } = state.settings;
+    const { from, to } = direction(line.speaker);
 
-    if (sourceLang === targetLang) {
+    if (from === to) {
       line.translated = line.original;
       line.status = "done";
       renderLines();
@@ -199,9 +314,9 @@
       const res = await chrome.runtime.sendMessage({
         type: "PVL_TRANSLATE",
         text: line.original,
-        source: sourceLang,
-        target: targetLang,
-        provider,
+        source: from,
+        target: to,
+        speaker: line.speaker,
       });
       if (!res || !res.ok) throw new Error((res && res.error) || "翻訳に失敗しました");
       line.translated = res.text;
@@ -213,39 +328,106 @@
         : `翻訳エラー: ${err && err.message ? err.message : err}`;
       if (isContextInvalidated(err)) setFatal("拡張機能が再読み込みされました。Meet のページを更新してください");
     }
+    line.createdAt = Date.now();
     // 翻訳待ちの間に古い行として削除されていれば描画不要
     if (state.lines.includes(line)) renderLines();
   }
 
-  function commitFinal(text) {
+  function commitSelfFinal(text) {
     const original = text.trim();
     if (!original) return;
-    const line = {
-      id: ++state.seq,
-      original,
-      translated: "",
-      status: "pending",
-      createdAt: Date.now(),
-    };
-    state.lines.push(line);
-    if (state.lines.length > MAX_LINES) state.lines.splice(0, state.lines.length - MAX_LINES);
-    renderLines();
-    translateLine(line);
+    translateLine(addLine({ speaker: "self", original }));
   }
 
   function pruneOldLines() {
     const cutoff = Date.now() - LINE_TTL_MS;
     const before = state.lines.length;
-    state.lines = state.lines.filter((line) => line.status === "pending" || line.createdAt >= cutoff);
+    state.lines = state.lines.filter(
+      (line) => line.status === "pending" || line.status === "transcribing" || line.createdAt >= cutoff,
+    );
     if (state.lines.length !== before) renderLines();
   }
 
   // ---------------------------------------------------------------------------
-  // 音声認識
+  // 相手の音声イベント（background.js から）
+  // ---------------------------------------------------------------------------
+
+  function applyPartnerState(partner) {
+    state.partner = {
+      active: Boolean(partner.active),
+      kind: partner.kind || (partner.active ? "starting" : "off"),
+      message: partner.message || "",
+      engine: partner.engine || null,
+    };
+    if (!state.partner.active) setInterim("partner", "");
+    updateHeader();
+  }
+
+  function handlePartnerEvent(message) {
+    switch (message.event) {
+      case "status":
+        applyPartnerState(message);
+        return;
+
+      case "interim":
+        setInterim("partner", message.text);
+        return;
+
+      case "activity":
+        // Gemini モードは途中結果がないため、発話中であることだけ示す
+        setInterim("partner", message.speaking ? "話しています…" : "");
+        return;
+
+      case "pending":
+        addLine({ key: `partner:${message.id}`, speaker: "partner", status: "transcribing" });
+        return;
+
+      case "final": {
+        setInterim("partner", "");
+        const key = `partner:${message.id}`;
+        const text = (message.text || "").trim();
+        let line = findLine(key);
+        if (!text) {
+          // 無音・雑音だった区間
+          if (line) removeLine(line);
+          return;
+        }
+        if (!line) line = addLine({ key, speaker: "partner", original: text });
+        line.original = text;
+        line.createdAt = Date.now();
+        if (typeof message.translated === "string" && message.translated) {
+          line.translated = message.translated;
+          line.status = "done";
+          renderLines();
+        } else {
+          line.status = "pending";
+          renderLines();
+          translateLine(line);
+        }
+        return;
+      }
+
+      case "error": {
+        const line = findLine(`partner:${message.id}`);
+        if (line) {
+          line.status = "error";
+          line.translated = `音声解析エラー: ${message.message || "不明なエラー"}`;
+          line.createdAt = Date.now();
+          renderLines();
+        }
+        return;
+      }
+
+      default:
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 自分の音声認識
   // ---------------------------------------------------------------------------
 
   function speechCandidates() {
-    return (LANGUAGES[state.settings.sourceLang] || LANGUAGES["en-US"]).speech;
+    return lang(state.settings.sourceLang).speech;
   }
 
   function currentSpeechLang() {
@@ -254,11 +436,11 @@
   }
 
   function listeningMessage() {
-    const lang = currentSpeechLang();
+    const speechLang = currentSpeechLang();
     if (state.speechIndex > 0) {
-      return `認識中 · ${speechCandidates()[0]} 非対応のため ${lang} で代替`;
+      return `認識中 · ${speechCandidates()[0]} 非対応のため ${speechLang} で代替`;
     }
-    return `認識中 · ${lang}`;
+    return `認識中 · ${speechLang}`;
   }
 
   function detachRecognition() {
@@ -291,7 +473,7 @@
 
     rec.onstart = () => {
       if (state.recognition !== rec) return;
-      setStatus("listening", listeningMessage());
+      setSelfStatus("listening", listeningMessage());
     };
 
     rec.onresult = (event) => {
@@ -301,10 +483,10 @@
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         const transcript = result[0] ? result[0].transcript : "";
-        if (result.isFinal) commitFinal(transcript);
+        if (result.isFinal) commitSelfFinal(transcript);
         else interim += transcript;
       }
-      setInterim(interim);
+      setInterim("self", interim);
     };
 
     rec.onerror = (event) => {
@@ -315,13 +497,13 @@
     rec.onend = () => {
       if (state.recognition !== rec) return;
       state.recognition = null;
-      setInterim("");
+      setInterim("self", "");
       // Chrome は無音が続くと自動で認識を終了するため、ON の間は再開し続ける
       if (state.running && !state.fatal) scheduleRestart();
     };
 
     state.recognition = rec;
-    setStatus("starting", `起動中… (${rec.lang})`);
+    setSelfStatus("starting", `起動中… (${rec.lang})`);
     try {
       rec.start();
     } catch (err) {
@@ -349,7 +531,7 @@
         const candidates = speechCandidates();
         if (state.speechIndex < candidates.length - 1) {
           state.speechIndex++;
-          setStatus("starting", `${candidates[state.speechIndex - 1]} は非対応 → ${currentSpeechLang()} で再試行`);
+          setSelfStatus("starting", `${candidates[state.speechIndex - 1]} は非対応 → ${currentSpeechLang()} で再試行`);
           // onend が続けて呼ばれ、新しい言語で再開される
           return;
         }
@@ -358,11 +540,11 @@
       }
       case "network":
         state.errorStreak++;
-        setStatus("error", "音声認識サーバーに接続できません。再接続中…");
+        setSelfStatus("error", "音声認識サーバーに接続できません。再接続中…");
         return;
       default:
         state.errorStreak++;
-        setStatus("error", `音声認識エラー (${error})。再試行中…`);
+        setSelfStatus("error", `音声認識エラー (${error})。再試行中…`);
     }
   }
 
@@ -382,14 +564,14 @@
     clearTimeout(state.restartTimer);
     state.restartTimer = null;
     detachRecognition();
-    setInterim("");
-    if (!state.fatal) setStatus("idle", "停止中");
+    setInterim("self", "");
+    if (!state.fatal) setSelfStatus("off", "停止中");
   }
 
   function setFatal(message) {
     state.fatal = message;
     stopRecognition();
-    setStatus("error", message);
+    setSelfStatus("error", message);
   }
 
   // ---------------------------------------------------------------------------
@@ -400,19 +582,21 @@
     return MEETING_PATH.test(location.pathname);
   }
 
-  // 「ON かつ会議画面にいる」ときだけ認識と字幕を有効にする
+  // 字幕は「ON かつ会議画面」で表示。自分のマイク認識はさらに captureSelf が ON のときだけ。
   function reconcile() {
     ensureOverlay();
-    const active = Boolean(state.settings.enabled) && isMeetingRoom();
-    ui.root.classList.toggle("pvl-hidden", !active);
+    const overlayActive = Boolean(state.settings.enabled) && isMeetingRoom();
+    const selfActive = overlayActive && Boolean(state.settings.captureSelf);
+    ui.root.classList.toggle("pvl-hidden", !overlayActive);
 
-    if (active && !state.running && !state.fatal) {
+    if (selfActive && !state.running && !state.fatal) {
       state.running = true;
       state.errorStreak = 0;
       startRecognition();
-    } else if (!active && state.running) {
+    } else if (!selfActive && state.running) {
       stopRecognition();
     }
+    updateHeader();
   }
 
   function applySettings(next) {
@@ -420,7 +604,8 @@
     state.settings = { ...DEFAULT_SETTINGS, ...next };
 
     const sourceChanged = prev.sourceLang !== state.settings.sourceLang;
-    const turnedOn = state.settings.enabled && !prev.enabled;
+    const turnedOn =
+      (state.settings.enabled && !prev.enabled) || (state.settings.captureSelf && !prev.captureSelf);
 
     if (sourceChanged) state.speechIndex = 0;
     // ON にし直す / 言語を変える ことで、致命的エラーから再試行できるようにする
@@ -432,7 +617,6 @@
     }
 
     reconcile();
-    updateHeader();
     renderLines();
   }
 
@@ -453,7 +637,7 @@
       if (area !== "sync") return;
       const next = { ...state.settings };
       let touched = false;
-      for (const key of Object.keys(DEFAULT_SETTINGS)) {
+      for (const key of SETTING_KEYS) {
         if (changes[key]) {
           next[key] = changes[key].newValue === undefined ? DEFAULT_SETTINGS[key] : changes[key].newValue;
           touched = true;
@@ -461,6 +645,19 @@
       }
       if (touched) applySettings(next);
     });
+
+    chrome.runtime.onMessage.addListener((message) => {
+      if (message && message.type === "PVL_PARTNER_EVENT") handlePartnerEvent(message);
+      return false;
+    });
+
+    // ページ再読み込み後も、このタブで相手の音声キャプチャが続いていれば表示に反映する
+    chrome.runtime
+      .sendMessage({ type: "PVL_GET_PARTNER_STATE" })
+      .then((res) => {
+        if (res && res.ok && res.state) applyPartnerState(res.state);
+      })
+      .catch(() => {});
 
     // Meet は SPA のため、待機画面 → 会議画面の遷移は URL の変化で検知する
     let lastPath = location.pathname;

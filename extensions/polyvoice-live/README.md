@@ -1,68 +1,74 @@
-# PolyVoice Live (Phase 1 / MVP)
+# PolyVoice Live (Phase 2)
 
-Google Meet 上で自分の発話をリアルタイムに音声認識し、相手の言語へ翻訳してフローティング字幕として表示する Chrome 拡張機能（Manifest V3）です。
-サーバー不要で、ブラウザ標準の Web Speech API とクライアントサイド処理のみで動作します。
+Google Meet 上で**自分の発話（マイク）と相手の発話（Meet タブの音声）**をリアルタイムに認識し、それぞれ相手・自分の言語へ翻訳してフローティング字幕として表示する Chrome 拡張機能（Manifest V3）です。
+Gemini API キーを設定すると、セブアノ語（Bisaya / Bislish）・タガログ語（Taglish）の口語やコードスイッチングに強い LLM 翻訳に切り替わります。
 
 ## ファイル構成
 
 | ファイル | 役割 |
 | --- | --- |
-| `manifest.json` | MV3 定義。`meet.google.com` への content script 注入と翻訳 API の host 許可 |
-| `content.js` | 字幕オーバーレイの挿入、SpeechRecognition の制御（途中結果の表示・確定時の翻訳依頼・自動再開・言語フォールバック） |
-| `background.js` | Service Worker。翻訳プロバイダ（差し替え可能）、キャッシュ、初期設定、ツールバーバッジ |
-| `popup.html` / `popup.js` | 翻訳元・翻訳先・翻訳エンジン・原文表示・ON/OFF の設定画面（MV3 はインラインスクリプト禁止のため JS を分離） |
-| `styles.css` | 画面下部中央に固定表示する半透明の字幕 UI（`#polyvoice-live-root` 配下に限定） |
+| `manifest.json` | MV3 定義。`tabCapture` / `offscreen` 権限、Meet への content script 注入、翻訳 API・Gemini API の host 許可 |
+| `languages.js` | 言語定義と設定の既定値（content / popup / offscreen / background で共有） |
+| `content.js` | 字幕オーバーレイ、自分のマイク認識、相手の認識イベントの表示（You = 青 / Partner = 緑） |
+| `background.js` | Service Worker。ハイブリッド翻訳（Gemini ⇄ 無料 API）、LLM プロンプトの枠組み、会話コンテキスト、相手音声キャプチャの制御と中継 |
+| `offscreen.html` / `offscreen.js` | Meet タブ音声の取得・再生、相手の音声認識（Web Speech にタブ音声を入力 / Gemini 用の発話区間切り出し） |
+| `popup.html` / `popup.js` | 言語・ON/OFF・相手音声キャプチャ・翻訳エンジン・Gemini API キー・モデル・用語集の設定 |
+| `styles.css` | 画面下部中央に固定表示する半透明の双方向字幕 UI |
 
-## インストール（開発者モード）
+## インストール / 更新
 
-1. `chrome://extensions` を開き、右上の「デベロッパーモード」を ON にする
-2. 「パッケージ化されていない拡張機能を読み込む」→ このフォルダ（`extensions/polyvoice-live`）を選択
-3. Google Meet の会議に参加し、ツールバーの PolyVoice Live アイコンから言語を選んで ON にする
+1. `chrome://extensions` → 「デベロッパーモード」ON
+2. 「パッケージ化されていない拡張機能を読み込む」でこのフォルダを選択（フェーズ1から更新する場合は、ファイルを差し替えて拡張機能カードの ↻ 再読み込み）
+3. 開いている Meet のタブを再読み込み
 
-## 動作の流れ
+## 使い方
+
+1. Meet の会議画面でツールバーの PolyVoice Live アイコンを開く
+2. **自分の言語**と**相手の言語**を選び、右上のトグルを ON（自分の声の字幕）
+3. **「相手の音声キャプチャを開始」**を押す（相手の声の字幕。Chrome にタブ共有中の表示が出ます）
+4. 高精度翻訳を使う場合は「Gemini API 設定」でキーを保存し、「接続テスト」で確認
+
+## 処理の流れ
 
 ```
-マイク → SpeechRecognition (continuous + interimResults)
-        ├─ 途中結果 → 字幕の「認識中」行にそのまま表示
-        └─ isFinal   → background.js へ PVL_TRANSLATE → 翻訳結果を字幕に表示
+自分: マイク ─ Web Speech (content.js) ─ 途中結果を表示 ─ 確定 ─┐
+                                                              ├─ background.js 翻訳 ─ 字幕 (You, 青)
+相手: Meetタブ音声 ─ tabCapture ─ offscreen.js                 │
+        ├ browser: SpeechRecognition.start(audioTrack) ─ 確定 ─┘  → 字幕 (Partner, 緑)
+        └ gemini : 音量VADで発話区間を切り出し → 16kHz WAV → Gemini で文字起こし+翻訳 → 字幕 (Partner, 緑)
 ```
 
-- Chrome は無音が続くと認識を自動終了するため、ON の間は `onend` で自動再開します（エラー時は指数バックオフ）。
-- 会議画面（`/xxx-xxxx-xxx`）にいるときだけ認識を開始します。待機画面では動作しません。
+- tabCapture 中はタブの音がミュートされるため、offscreen で再生し直しています（相手の声はそのまま聞こえます）。
+- 相手の認識エンジン「自動」: 相手がセブアノ語で API キーがある場合は Gemini、それ以外は Web Speech。Web Speech がタブ音声入力に未対応・接続不可の場合は、キーがあれば Gemini へ自動で切り替えます。
+- 字幕を OFF（トグル / 字幕の ×）にすると、相手の音声キャプチャも停止します。
 
-## 言語と音声認識コード
+## ハイブリッド翻訳
 
-| UI 上の言語 | 音声認識の候補（先頭から試行） | 翻訳コード |
+| 翻訳エンジン設定 | API キーあり | API キーなし |
 | --- | --- | --- |
-| 日本語 `ja-JP` | `ja-JP` | `ja` |
-| 英語 `en-US` | `en-US` | `en` |
-| タガログ語 `tl-PH` | `fil-PH` → `tl-PH` | `tl` |
-| セブアノ語 `ceb-PH` | `ceb-PH` → `fil-PH` → `en-US` | `ceb` |
+| 自動（既定） | Gemini → Google 非公式 → MyMemory | Google 非公式 → MyMemory |
+| Gemini 高精度 | Gemini → Google 非公式 → MyMemory | Google 非公式 → MyMemory |
+| Google / MyMemory / Mock | 選択したもの（Google は MyMemory へフォールバック） | 同左 |
 
-`language-not-supported` エラーが返った場合、次の候補へ自動でフォールバックし、字幕ヘッダーに代替中の言語を表示します。
-Chrome がエラーを返さずに認識結果が空になるケースは検知できないため、セブアノ語で文字が出ない場合はタガログ語を選択してください。
+- Gemini には直近 8 発話の会話（You / Partner と訳文）を文脈として渡し、主語の省略・代名詞・音声認識の誤りを補正させます。
+- API キーは `chrome.storage.local`（同期されない）に保存され、`generativelanguage.googleapis.com` への `x-goog-api-key` ヘッダーにのみ使われます。
+- モデルは popup で変更できます（既定 `gemini-2.5-flash`。2.5 Flash 系は字幕の遅延を抑えるため思考を無効化）。
 
-## 翻訳エンジンの差し替え
+## LLM プロンプトの枠組み（`background.js`）
 
-`background.js` の `TRANSLATION_PROVIDERS` にエントリを追加し、`popup.js` の `PROVIDERS` に同じキーを追加します。
+- `buildSystemPrompt()` … 共通ルール（ASR 誤り補正、フィラー除去、コードスイッチングの扱い、数値・固有名詞の保持、字幕向けの簡潔さ、プロンプトインジェクション対策）＋ 言語別プロファイル ＋ 用語集
+- `LANGUAGE_PROFILES` … 言語ごとに `notes`（翻訳元として読むときの注意）と `style`（翻訳先として書くときの文体）を定義
+  - **Cebuano (Bisaya / Bislish)**: 英語混じり、man/ba/gyud/lagi/bitaw/diay などの談話標識、タガログ語と混同しやすい基本語、fil-PH / en-US 認識器による綴り崩れの復元、表記ゆれ
+  - **Tagalog (Taglish)**: 英語混じり、英語語幹 + タガログ語接辞（nag-check, i-send）、po/opo などの丁寧さ、口語綴り
+  - **Japanese / English**: 主語省略の補完、ビジネス通話向けの丁寧体、非ネイティブ英語の意図解釈
+- `buildUserPrompt()` … 会話コンテキスト、話者（You / Partner）、翻訳方向、発話本文
+- 音声モードでは `transcript`（話されたままの文字起こし）と `translation` を JSON Schema で返させます
+- 言語を追加する場合は `languages.js` の `LANGUAGES` と `LANGUAGE_PROFILES` に 1 エントリずつ追加します
 
-```js
-myApi: {
-  label: "社内翻訳API",
-  async translate(text, source, target) {
-    const res = await fetch("https://example.com/translate", { method: "POST", body: JSON.stringify({ text, source, target }) });
-    return (await res.json()).text;
-  },
-},
-```
+## 既知の制約
 
-外部ドメインを使う場合は `manifest.json` の `host_permissions` にも追加してください。
-選択したプロバイダが失敗した場合は MyMemory に一度だけフォールバックします（Mock 選択時を除く）。
-
-## 既知の制約（MVP）
-
-- 認識対象は**自分のマイク入力のみ**です。相手の音声（タブ音声）の認識は `chrome.tabCapture` + offscreen document を使うフェーズ2の範囲です。
-- Meet でミュートしていても、拡張機能はマイク入力を認識します。
-- スピーカーから出た相手の声を拾わないよう、ヘッドセットの使用を推奨します。
-- Web Speech API の音声は Google の認識サーバーに送信されます。
-- Google Translate 非公式エンドポイントはテスト用途向けで、レート制限や仕様変更の可能性があります。本番では公式 API などへ差し替えてください。
+- 自分のマイク認識（Meet ページ内）と相手のタブ音声認識（offscreen）を同時に Web Speech で動かせるかは Chrome のバージョンや環境に依存します。相手側がエラーになる場合は Gemini 音声認識を選んでください。
+- Gemini 音声認識は発話の区切り（約 0.7 秒の無音）ごとに送るため、途中経過は表示されず 1〜3 秒程度遅れて字幕になります。
+- スピーカーで聞くと相手の声をマイクが拾い、自分の字幕として二重に出ます。ヘッドセットを使ってください。
+- Web Speech API の音声は Google の認識サーバーに、Gemini モードの音声・テキストは Gemini API に送信されます。
+- Google Translate 非公式エンドポイントはテスト用途向けです。本番では公式 API などに差し替えてください。

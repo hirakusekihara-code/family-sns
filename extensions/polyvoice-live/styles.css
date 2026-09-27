@@ -1,6 +1,7 @@
 /*
- * PolyVoice Live - Meet 上のフローティング字幕
+ * PolyVoice Live - Meet 上のフローティング字幕（双方向）
  * すべて #polyvoice-live-root 配下に限定し、Meet 本体のスタイルに影響させない。
+ * 自分 (You) = 青系、相手 (Partner) = 緑系。
  */
 
 #polyvoice-live-root {
@@ -10,7 +11,10 @@
   --pvl-text: #ffffff;
   --pvl-text-sub: rgba(232, 234, 237, 0.72);
   --pvl-text-dim: rgba(232, 234, 237, 0.5);
-  --pvl-accent: #8ab4f8;
+  --pvl-self: #8ab4f8;
+  --pvl-self-soft: rgba(138, 180, 248, 0.16);
+  --pvl-partner: #81c995;
+  --pvl-partner-soft: rgba(129, 201, 149, 0.16);
   --pvl-ok: #34d399;
   --pvl-warn: #fbbf24;
   --pvl-error: #f87171;
@@ -20,7 +24,7 @@
   bottom: 104px; /* Meet 下部のコントロールバーと重ならない位置 */
   transform: translateX(-50%);
   z-index: 9999;
-  width: min(880px, calc(100vw - 32px));
+  width: min(900px, calc(100vw - 32px));
   pointer-events: none; /* パネル外のクリックは Meet に通す */
   font-family: "Google Sans", "Hiragino Sans", "Noto Sans JP", "Segoe UI", Roboto, system-ui, sans-serif;
   font-size: 16px;
@@ -62,7 +66,7 @@
 #polyvoice-live-root .pvl-header {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   padding: 8px 10px 8px 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   font-size: 12px;
@@ -74,17 +78,51 @@
   border-bottom: none;
 }
 
+#polyvoice-live-root .pvl-title {
+  flex: none;
+  font-weight: 600;
+  color: var(--pvl-text);
+  letter-spacing: 0.02em;
+  margin-right: 2px;
+}
+
+#polyvoice-live-root .pvl-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 9px 2px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  transition: opacity 0.2s ease;
+}
+
+#polyvoice-live-root .pvl-chip[data-speaker="self"] {
+  background: var(--pvl-self-soft);
+  color: var(--pvl-self);
+}
+
+#polyvoice-live-root .pvl-chip[data-speaker="partner"] {
+  background: var(--pvl-partner-soft);
+  color: var(--pvl-partner);
+}
+
+#polyvoice-live-root .pvl-chip[data-state="off"] {
+  opacity: 0.45;
+}
+
 #polyvoice-live-root .pvl-dot {
   flex: none;
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--pvl-text-dim);
 }
 
 #polyvoice-live-root .pvl-dot[data-state="listening"] {
-  background: var(--pvl-ok);
-  box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.6);
+  background: currentColor;
   animation: pvl-pulse 1.8s ease-out infinite;
 }
 
@@ -94,24 +132,6 @@
 
 #polyvoice-live-root .pvl-dot[data-state="error"] {
   background: var(--pvl-error);
-}
-
-#polyvoice-live-root .pvl-title {
-  flex: none;
-  font-weight: 600;
-  color: var(--pvl-text);
-  letter-spacing: 0.02em;
-}
-
-#polyvoice-live-root .pvl-langs {
-  flex: none;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: rgba(138, 180, 248, 0.16);
-  color: var(--pvl-accent);
-  font-weight: 600;
-  font-size: 11px;
-  letter-spacing: 0.04em;
 }
 
 #polyvoice-live-root .pvl-status {
@@ -129,6 +149,7 @@
   flex: none;
   display: flex;
   gap: 4px;
+  margin-left: auto;
 }
 
 #polyvoice-live-root .pvl-btn {
@@ -152,7 +173,7 @@
 }
 
 #polyvoice-live-root .pvl-btn:focus-visible {
-  outline: 2px solid var(--pvl-accent);
+  outline: 2px solid var(--pvl-self);
   outline-offset: 1px;
 }
 
@@ -163,7 +184,7 @@
   flex-direction: column;
   gap: 10px;
   padding: 12px 18px 14px;
-  max-height: 40vh;
+  max-height: 42vh;
   overflow-y: auto;
 }
 
@@ -188,13 +209,59 @@
   display: none;
 }
 
+/* 話者ラベル（You / Partner） */
+#polyvoice-live-root .pvl-speaker {
+  flex: none;
+  display: inline-block;
+  min-width: 58px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+#polyvoice-live-root [data-speaker="self"] > .pvl-speaker {
+  background: var(--pvl-self-soft);
+  color: var(--pvl-self);
+}
+
+#polyvoice-live-root [data-speaker="partner"] > .pvl-speaker {
+  background: var(--pvl-partner-soft);
+  color: var(--pvl-partner);
+}
+
 #polyvoice-live-root .pvl-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding-left: 10px;
+  border-left: 3px solid transparent;
   animation: pvl-fade-in 0.22s ease-out;
+}
+
+#polyvoice-live-root .pvl-line[data-speaker="self"] {
+  border-left-color: var(--pvl-self);
+}
+
+#polyvoice-live-root .pvl-line[data-speaker="partner"] {
+  border-left-color: var(--pvl-partner);
+}
+
+#polyvoice-live-root .pvl-line > .pvl-speaker {
+  margin-top: 4px;
+}
+
+#polyvoice-live-root .pvl-line-content {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 /* 古い行ほど薄く表示して最新行を目立たせる */
 #polyvoice-live-root .pvl-line:not(:last-child) {
-  opacity: 0.6;
+  opacity: 0.62;
 }
 
 #polyvoice-live-root .pvl-original {
@@ -212,7 +279,8 @@
   word-break: break-word;
 }
 
-#polyvoice-live-root .pvl-line[data-status="pending"] .pvl-translated {
+#polyvoice-live-root .pvl-line[data-status="pending"] .pvl-translated,
+#polyvoice-live-root .pvl-line[data-status="transcribing"] .pvl-translated {
   color: var(--pvl-text-dim);
   font-weight: 400;
   font-size: 16px;
@@ -225,13 +293,33 @@
   font-weight: 500;
 }
 
+/* 発話途中（interim）の行 */
 #polyvoice-live-root .pvl-interim {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding-left: 10px;
+  border-left: 3px dashed transparent;
   font-size: 17px;
   font-style: italic;
   color: var(--pvl-text-sub);
-  border-left: 2px solid var(--pvl-accent);
-  padding-left: 10px;
   word-break: break-word;
+}
+
+#polyvoice-live-root .pvl-interim[data-speaker="self"] {
+  border-left-color: var(--pvl-self);
+}
+
+#polyvoice-live-root .pvl-interim[data-speaker="partner"] {
+  border-left-color: var(--pvl-partner);
+}
+
+#polyvoice-live-root .pvl-interim > .pvl-speaker {
+  font-style: normal;
+}
+
+#polyvoice-live-root .pvl-interim-text {
+  min-width: 0;
 }
 
 #polyvoice-live-root .pvl-interim.pvl-empty {
@@ -240,13 +328,13 @@
 
 @keyframes pvl-pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.6);
+    box-shadow: 0 0 0 0 currentColor;
   }
   70% {
-    box-shadow: 0 0 0 7px rgba(52, 211, 153, 0);
+    box-shadow: 0 0 0 6px transparent;
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0);
+    box-shadow: 0 0 0 0 transparent;
   }
 }
 
@@ -261,7 +349,7 @@
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 720px) {
   #polyvoice-live-root {
     bottom: 88px;
   }
@@ -270,8 +358,13 @@
     font-size: 18px;
   }
 
-  #polyvoice-live-root .pvl-status {
+  #polyvoice-live-root .pvl-status,
+  #polyvoice-live-root .pvl-title {
     display: none;
+  }
+
+  #polyvoice-live-root .pvl-speaker {
+    min-width: 0;
   }
 }
 

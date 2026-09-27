@@ -12,8 +12,13 @@
         --sub: #5f6368;
         --border: #dadce0;
         --accent: #1a73e8;
+        --self: #1a73e8;
+        --partner: #188038;
+        --danger: #d93025;
         --warn-bg: #fef7e0;
         --warn-text: #7a4f01;
+        --ok-bg: #e6f4ea;
+        --ok-text: #137333;
         color-scheme: light dark;
       }
 
@@ -25,8 +30,13 @@
           --sub: #9aa0a6;
           --border: #3c4043;
           --accent: #8ab4f8;
+          --self: #8ab4f8;
+          --partner: #81c995;
+          --danger: #f28b82;
           --warn-bg: #3b2f0b;
           --warn-text: #fdd663;
+          --ok-bg: #0d3a1e;
+          --ok-text: #81c995;
         }
       }
 
@@ -36,7 +46,7 @@
 
       body {
         margin: 0;
-        width: 320px;
+        width: 360px;
         padding: 16px;
         background: var(--bg);
         color: var(--text);
@@ -48,7 +58,7 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        margin-bottom: 16px;
+        margin-bottom: 14px;
       }
 
       h1 {
@@ -62,6 +72,19 @@
         font-size: 11px;
         font-weight: 400;
         color: var(--sub);
+      }
+
+      h2 {
+        margin: 0 0 8px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--sub);
+        letter-spacing: 0.02em;
+      }
+
+      section {
+        padding: 12px 0;
+        border-top: 1px solid var(--border);
       }
 
       /* ON/OFF toggle */
@@ -122,7 +145,7 @@
         grid-template-columns: 1fr auto 1fr;
         align-items: end;
         gap: 8px;
-        margin-bottom: 14px;
+        margin-bottom: 12px;
       }
 
       label.field {
@@ -133,7 +156,22 @@
         font-size: 11px;
       }
 
-      select {
+      label.field .who {
+        font-weight: 600;
+      }
+
+      label.field .who.self {
+        color: var(--self);
+      }
+
+      label.field .who.partner {
+        color: var(--partner);
+      }
+
+      select,
+      input[type="text"],
+      input[type="password"],
+      textarea {
         width: 100%;
         padding: 7px 8px;
         border: 1px solid var(--border);
@@ -142,6 +180,12 @@
         color: var(--text);
         font: inherit;
         font-size: 13px;
+      }
+
+      textarea {
+        resize: vertical;
+        min-height: 64px;
+        font-size: 12px;
       }
 
       #swap {
@@ -163,12 +207,131 @@
         display: flex;
         align-items: center;
         gap: 8px;
-        margin-bottom: 12px;
+        margin-bottom: 8px;
         cursor: pointer;
       }
 
-      .provider {
-        margin-bottom: 12px;
+      .stack {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .row {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+
+      .row > input {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+
+      button.action {
+        flex: none;
+        padding: 7px 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface);
+        color: var(--text);
+        font: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      button.action:hover:not(:disabled) {
+        border-color: var(--accent);
+      }
+
+      button.action:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+
+      button.primary {
+        width: 100%;
+        padding: 9px 12px;
+        border-color: transparent;
+        background: var(--partner);
+        color: #fff;
+      }
+
+      button.primary.stop {
+        background: var(--danger);
+      }
+
+      .status {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--sub);
+        min-height: 18px;
+        word-break: break-word;
+      }
+
+      .status .dot {
+        flex: none;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--border);
+      }
+
+      .status[data-state="listening"] .dot {
+        background: var(--partner);
+      }
+
+      .status[data-state="starting"] .dot {
+        background: #f9ab00;
+      }
+
+      .status[data-state="error"] {
+        color: var(--danger);
+      }
+
+      .status[data-state="error"] .dot {
+        background: var(--danger);
+      }
+
+      .badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+        background: var(--warn-bg);
+        color: var(--warn-text);
+      }
+
+      .badge.ok {
+        background: var(--ok-bg);
+        color: var(--ok-text);
+      }
+
+      details summary {
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--sub);
+        list-style-position: inside;
+      }
+
+      details[open] summary {
+        margin-bottom: 10px;
+      }
+
+      .hint {
+        margin: 0;
+        font-size: 11px;
+        line-height: 1.5;
+        color: var(--sub);
+      }
+
+      .hint a {
+        color: var(--accent);
       }
 
       .note {
@@ -181,12 +344,14 @@
         line-height: 1.5;
       }
 
-      .note[hidden] {
-        display: none;
+      .note[hidden],
+      [hidden] {
+        display: none !important;
       }
 
       footer {
-        margin-top: 8px;
+        padding-top: 10px;
+        border-top: 1px solid var(--border);
         color: var(--sub);
         font-size: 11px;
         line-height: 1.5;
@@ -197,7 +362,7 @@
     <header>
       <h1>
         PolyVoice Live
-        <small>Google Meet リアルタイム翻訳字幕</small>
+        <small>Google Meet 双方向リアルタイム翻訳字幕</small>
       </h1>
       <span class="switch">
         <input type="checkbox" id="enabled" role="switch" aria-label="翻訳字幕のON/OFF" />
@@ -205,40 +370,108 @@
       </span>
     </header>
 
+    <p class="note" id="noteMeet" hidden>
+      Google Meet の会議画面（meet.google.com/xxx-xxxx-xxx）で開いてください。
+    </p>
+
     <div class="lang-row">
       <label class="field">
-        話す言語（翻訳元）
+        <span><span class="who self">You</span> 自分の言語</span>
         <select id="sourceLang"></select>
       </label>
-      <button id="swap" type="button" title="翻訳元と翻訳先を入れ替え" aria-label="翻訳元と翻訳先を入れ替え">⇄</button>
+      <button id="swap" type="button" title="自分と相手の言語を入れ替え" aria-label="自分と相手の言語を入れ替え">⇄</button>
       <label class="field">
-        相手の言語（翻訳先）
+        <span><span class="who partner">Partner</span> 相手の言語</span>
         <select id="targetLang"></select>
       </label>
     </div>
 
-    <label class="field provider">
-      翻訳エンジン
-      <select id="provider"></select>
+    <label class="option">
+      <input type="checkbox" id="captureSelf" />
+      自分の声（マイク）を認識して相手の言語に翻訳
     </label>
-
     <label class="option">
       <input type="checkbox" id="showOriginal" />
       原文も字幕に表示する
     </label>
 
-    <p class="note" id="noteMeet" hidden>
-      Google Meet の会議画面（meet.google.com/xxx-xxxx-xxx）で動作します。
-    </p>
+    <section class="stack" aria-labelledby="partnerHeading">
+      <h2 id="partnerHeading">相手の音声（Meet タブの音声）</h2>
+      <div class="status" id="partnerStatus" data-state="off">
+        <span class="dot"></span><span id="partnerStatusText">未キャプチャ</span>
+      </div>
+      <button type="button" class="action primary" id="partnerToggle">相手の音声キャプチャを開始</button>
+      <label class="field">
+        相手の音声の認識エンジン
+        <select id="partnerEngine"></select>
+      </label>
+      <p class="hint">
+        開始すると Chrome に「このタブを共有中」と表示されます。相手の声はそのまま聞こえます。
+      </p>
+    </section>
+
+    <section class="stack" aria-labelledby="translateHeading">
+      <h2 id="translateHeading">翻訳エンジン <span class="badge" id="modeBadge">無料翻訳</span></h2>
+      <label class="field">
+        翻訳エンジン
+        <select id="provider"></select>
+      </label>
+
+      <details id="geminiDetails">
+        <summary>Gemini API 設定（高精度翻訳）</summary>
+        <div class="stack">
+          <label class="field" for="apiKey">Gemini API Key</label>
+          <div class="row">
+            <input
+              type="password"
+              id="apiKey"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="AIza..."
+              aria-label="Gemini API Key"
+            />
+            <button type="button" class="action" id="toggleKey" aria-label="APIキーを表示">表示</button>
+          </div>
+          <div class="row">
+            <button type="button" class="action" id="saveKey">保存</button>
+            <button type="button" class="action" id="testKey">接続テスト</button>
+            <button type="button" class="action" id="clearKey">削除</button>
+          </div>
+          <div class="status" id="keyStatus" data-state="off"><span class="dot"></span><span id="keyStatusText"></span></div>
+
+          <label class="field">
+            モデル
+            <input type="text" id="geminiModel" list="modelOptions" spellcheck="false" />
+            <datalist id="modelOptions">
+              <option value="gemini-2.5-flash"></option>
+              <option value="gemini-2.5-flash-lite"></option>
+              <option value="gemini-2.5-pro"></option>
+            </datalist>
+          </label>
+
+          <label class="field">
+            用語集（1行1件「原語 = 訳語」。社名・人名・専門用語など）
+            <textarea id="glossary" rows="3" placeholder="PolyVoice = PolyVoice&#10;見積書 = quotation"></textarea>
+          </label>
+
+          <p class="hint">
+            API キーは <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">Google AI Studio</a>
+            で取得できます。キーはこの PC の Chrome（chrome.storage.local）にのみ保存され、Gemini API への通信にだけ使用されます。
+          </p>
+        </div>
+      </details>
+    </section>
+
     <p class="note" id="noteCebuano" hidden>
-      セブアノ語 (ceb-PH) は Chrome の音声認識で未対応の場合があります。その場合は自動で fil-PH → en-US にフォールバックして認識します。
+      セブアノ語は Chrome の音声認識で未対応の場合があり、その場合は fil-PH / en-US で代替認識します。Gemini API キーを設定すると、相手のセブアノ語は Gemini が音声から直接認識・翻訳します。
     </p>
-    <p class="note" id="noteSame" hidden>翻訳元と翻訳先が同じため、認識結果をそのまま表示します。</p>
+    <p class="note" id="noteSame" hidden>自分と相手の言語が同じため、認識結果をそのまま表示します。</p>
 
     <footer>
-      音声認識は Chrome の Web Speech API を使用します（音声は Google の認識サーバーに送信されます）。ハウリング防止のためヘッドセットの使用を推奨します。
+      スピーカーから出た相手の声をマイクが拾うと二重に字幕が出るため、ヘッドセットの使用を推奨します。
     </footer>
 
+    <script src="languages.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>
