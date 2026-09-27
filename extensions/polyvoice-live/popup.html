@@ -442,12 +442,13 @@
           <label class="field">
             モデル
             <input type="text" id="geminiModel" list="modelOptions" spellcheck="false" />
-            <datalist id="modelOptions">
-              <option value="gemini-2.5-flash"></option>
-              <option value="gemini-2.5-flash-lite"></option>
-              <option value="gemini-2.5-pro"></option>
-            </datalist>
+            <datalist id="modelOptions"></datalist>
           </label>
+          <div class="row">
+            <button type="button" class="action" id="resetModel">推奨モデルに戻す</button>
+            <button type="button" class="action" id="reloadModels">利用可能なモデルを取得</button>
+          </div>
+          <p class="hint" id="modelHint">推奨: gemini-3.5-flash-lite（高速・低コストで字幕向け）</p>
 
           <label class="field">
             用語集（1行1件「原語 = 訳語」。社名・人名・専門用語など）

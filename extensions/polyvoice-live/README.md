@@ -52,7 +52,10 @@ Gemini API キーを設定すると、セブアノ語（Bisaya / Bislish）・�
 
 - Gemini には直近 8 発話の会話（You / Partner と訳文）を文脈として渡し、主語の省略・代名詞・音声認識の誤りを補正させます。
 - API キーは `chrome.storage.local`（同期されない）に保存され、`generativelanguage.googleapis.com` への `x-goog-api-key` ヘッダーにのみ使われます。
-- モデルは popup で変更できます（既定 `gemini-2.5-flash`。2.5 Flash 系は字幕の遅延を抑えるため思考を無効化）。
+- モデルは popup で変更できます（既定・推奨 `gemini-3.5-flash-lite`）。「利用可能なモデルを取得」で、その API キーで使えるモデル一覧を Gemini API から取得して候補に表示します。
+- Gemini 3.x 以降には `temperature` / `thinkingConfig` を送らず既定値で動かします（2.x 系を指定した場合のみ temperature 0.2・2.5 Flash 系は思考無効）。
+- 選択中のモデルが提供終了で 404 になった場合は、エラーメッセージで案内された後継モデル（なければ既定モデル）で 1 回だけ再試行し、成功したら設定を自動更新します。
+- 設定 v3 への移行時に、新規ユーザー向けに提供終了した `gemini-1.x` / `gemini-2.x` の設定は既定モデルに置き換えます。
 
 ## LLM プロンプトの枠組み（`background.js`）
 

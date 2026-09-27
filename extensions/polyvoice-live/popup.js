@@ -22,6 +22,8 @@ const PARTNER_ENGINES = [
 ];
 
 const ENGINE_LABELS = { browser: "Web Speech", gemini: "Gemini" };
+// API からモデル一覧を取得できないときの候補（提供終了した 2.x 系は載せない）
+const FALLBACK_MODELS = [{ id: DEFAULT_SETTINGS.geminiModel, label: "推奨" }];
 const MAX_GLOSSARY_LENGTH = 4000;
 
 const $ = (id) => document.getElementById(id);
@@ -142,6 +144,7 @@ async function saveKey() {
   await chrome.storage.local.set({ geminiApiKey: value });
   await refreshKey();
   renderKeyStatus("保存しました。接続テストで動作を確認できます", "listening");
+  loadModels();
 }
 
 async function clearKey() {
@@ -160,11 +163,53 @@ async function testKey() {
   try {
     const res = await chrome.runtime.sendMessage({ type: "PVL_TEST_GEMINI" });
     if (!res || !res.ok) throw new Error((res && res.error) || "応答がありません");
-    renderKeyStatus(`OK: ${res.text}`, "listening");
+    const note = res.migrated ? `（提供終了のため ${res.model} に自動切替）` : `（${res.model}）`;
+    renderKeyStatus(`OK${note}: ${res.text}`, "listening");
   } catch (err) {
     renderKeyStatus(`失敗: ${err && err.message ? err.message : err}`, "error");
   } finally {
     $("testKey").disabled = false;
+  }
+}
+
+function renderModelOptions(models) {
+  const list = models.length ? models : FALLBACK_MODELS;
+  const recommended = DEFAULT_SETTINGS.geminiModel;
+  // 推奨モデルを先頭に、あとは名前順
+  const sorted = [...list].sort((a, b) =>
+    a.id === recommended ? -1 : b.id === recommended ? 1 : a.id.localeCompare(b.id),
+  );
+  $("modelOptions").replaceChildren(
+    ...sorted.map(({ id, label }) => {
+      const option = document.createElement("option");
+      option.value = id;
+      option.label = id === recommended ? `${label}（推奨）` : label;
+      return option;
+    }),
+  );
+}
+
+async function loadModels({ userInitiated = false } = {}) {
+  if (!hasKey) {
+    renderModelOptions([]);
+    if (userInitiated) $("modelHint").textContent = "API キーを保存するとモデル一覧を取得できます";
+    return;
+  }
+  $("reloadModels").disabled = true;
+  try {
+    const res = await chrome.runtime.sendMessage({ type: "PVL_LIST_MODELS" });
+    if (!res || !res.ok) throw new Error((res && res.error) || "応答がありません");
+    renderModelOptions(res.models);
+    const current = $("geminiModel").value.trim();
+    const available = res.models.some((m) => m.id === current);
+    $("modelHint").textContent = available
+      ? `利用可能なモデル ${res.models.length} 件を取得しました。推奨: ${DEFAULT_SETTINGS.geminiModel}`
+      : `「${current}」はこの API キーでは利用できません。「推奨モデルに戻す」を押してください`;
+  } catch (err) {
+    renderModelOptions([]);
+    if (userInitiated) $("modelHint").textContent = `モデル一覧を取得できませんでした: ${err && err.message ? err.message : err}`;
+  } finally {
+    $("reloadModels").disabled = false;
   }
 }
 
@@ -212,6 +257,8 @@ async function init() {
 
   await refreshKey();
   renderSettings(await chrome.storage.sync.get(DEFAULT_SETTINGS));
+  renderModelOptions([]);
+  loadModels();
 
   try {
     const res = await chrome.runtime.sendMessage({ type: "PVL_GET_PARTNER_STATE" });
@@ -231,6 +278,12 @@ async function init() {
   $("geminiModel").addEventListener("change", (e) =>
     save({ geminiModel: e.target.value.trim() || DEFAULT_SETTINGS.geminiModel }),
   );
+  $("resetModel").addEventListener("click", async () => {
+    $("geminiModel").value = DEFAULT_SETTINGS.geminiModel;
+    await save({ geminiModel: DEFAULT_SETTINGS.geminiModel });
+    $("modelHint").textContent = `推奨モデル ${DEFAULT_SETTINGS.geminiModel} に設定しました`;
+  });
+  $("reloadModels").addEventListener("click", () => loadModels({ userInitiated: true }));
   $("glossary").addEventListener("change", (e) => save({ glossary: e.target.value.slice(0, MAX_GLOSSARY_LENGTH) }));
 
   $("swap").addEventListener("click", async () => {

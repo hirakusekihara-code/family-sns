@@ -45,7 +45,7 @@
     }),
   });
 
-  const SETTINGS_VERSION = 2;
+  const SETTINGS_VERSION = 3;
 
   // chrome.storage.sync に保存する設定（API キーは同期させないため storage.local 側に置く）
   const DEFAULT_SETTINGS = Object.freeze({
@@ -57,7 +57,7 @@
     showOriginal: true,
     provider: "auto", // auto | gemini | google | mymemory | mock
     partnerEngine: "auto", // auto | browser | gemini
-    geminiModel: "gemini-2.5-flash",
+    geminiModel: "gemini-3.5-flash-lite",
     glossary: "", // 1 行 1 件「原語 = 訳語」
   });
 

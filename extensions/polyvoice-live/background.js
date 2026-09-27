@@ -51,7 +51,9 @@ async function fetchJson(url, { timeoutMs = REQUEST_TIMEOUT_MS, ...init } = {}) 
     }
     if (!res.ok) {
       const detail = data && data.error && data.error.message;
-      throw new Error(detail ? `HTTP ${res.status}: ${detail}` : `HTTP ${res.status}`);
+      const error = new Error(detail ? `HTTP ${res.status}: ${detail}` : `HTTP ${res.status}`);
+      error.status = res.status;
+      throw error;
     }
     if (data === null) throw new Error("JSON 以外のレスポンスが返されました");
     return data;
@@ -261,46 +263,101 @@ const AUDIO_SCHEMA = {
 };
 
 function validModel(model) {
-  const name = typeof model === "string" ? model.trim() : "";
+  const name = typeof model === "string" ? model.trim().replace(/^models\//, "") : "";
   return /^[a-z0-9][a-z0-9._-]*$/i.test(name) ? name : DEFAULT_SETTINGS.geminiModel;
 }
 
-async function geminiGenerate({ apiKey, model, systemPrompt, parts, schema, timeoutMs }) {
-  if (!apiKey) throw new Error("Gemini API キーが設定されていません");
-  const modelName = validModel(model);
-
-  const generationConfig = {
-    temperature: 0.2,
-    responseMimeType: "application/json",
-    responseSchema: schema,
-  };
-  // 2.5 Flash 系は思考を無効化してレイテンシを抑える（字幕用途のため）
-  if (/^gemini-2\.5-flash/.test(modelName)) {
-    generationConfig.thinkingConfig = { thinkingBudget: 0 };
+// モデル世代ごとのリクエスト設定
+function generationConfigFor(model, schema) {
+  const config = { responseMimeType: "application/json", responseSchema: schema };
+  if (/^gemini-[12]\./.test(model)) {
+    // 2.x 以前: 低温度で訳揺れを抑え、2.5 Flash 系は思考を無効化してレイテンシを抑える
+    config.temperature = 0.2;
+    if (/^gemini-2\.5-flash/.test(model)) config.thinkingConfig = { thinkingBudget: 0 };
   }
+  // 3.x 以降: temperature は既定値 (1.0) のまま使うことが推奨され、thinkingBudget は廃止されているため
+  // どちらも送らない（Flash-Lite は既定で最小限の思考のため字幕用途でも高速）
+  return config;
+}
 
-  const data = await fetchJson(`${GEMINI_ENDPOINT}/${encodeURIComponent(modelName)}:generateContent`, {
+// 提供終了モデルの 404 メッセージから、案内されている後継モデルを取り出す
+// 例: "This model models/gemini-2.5-flash-lite is no longer available ... use models/gemini-3.5-flash-lite ..."
+function suggestedModel(err, current) {
+  if (!err || err.status !== 404) return null;
+  const match = /use\s+models\/([a-z0-9][a-z0-9._-]*)/i.exec(err.message || "");
+  const next = match ? match[1] : DEFAULT_SETTINGS.geminiModel;
+  return next && next !== current ? next : null;
+}
+
+async function geminiRequest({ apiKey, model, systemPrompt, parts, schema, timeoutMs }) {
+  return fetchJson(`${GEMINI_ENDPOINT}/${encodeURIComponent(model)}:generateContent`, {
     method: "POST",
     timeoutMs,
     headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: systemPrompt }] },
       contents: [{ role: "user", parts }],
-      generationConfig,
+      generationConfig: generationConfigFor(model, schema),
     }),
   });
+}
+
+// 戻り値: { result: パース済み JSON, model: 実際に使ったモデル }
+async function geminiGenerate({ apiKey, model, ...request }) {
+  if (!apiKey) throw new Error("Gemini API キーが設定されていません");
+  let modelName = validModel(model);
+
+  let data;
+  try {
+    data = await geminiRequest({ apiKey, model: modelName, ...request });
+  } catch (err) {
+    // モデルが提供終了なら後継モデルで 1 回だけ再試行し、成功したら設定も更新する
+    const next = suggestedModel(err, modelName);
+    if (!next) throw err;
+    console.warn(`[PolyVoice] model "${modelName}" unavailable; retrying with "${next}"`);
+    data = await geminiRequest({ apiKey, model: next, ...request });
+    modelName = next;
+    chrome.storage.sync.set({ geminiModel: next }).catch(() => {});
+  }
 
   const candidate = data.candidates && data.candidates[0];
   if (!candidate || !candidate.content) {
     const reason = (data.promptFeedback && data.promptFeedback.blockReason) || (candidate && candidate.finishReason);
     throw new Error(reason ? `Gemini が応答しませんでした (${reason})` : "Gemini から応答がありません");
   }
-  const text = (candidate.content.parts || []).map((part) => part.text || "").join("");
+  // 思考モデルは thought パートを含むことがあるため、回答本文のパートだけを連結する
+  const text = (candidate.content.parts || [])
+    .filter((part) => !part.thought)
+    .map((part) => part.text || "")
+    .join("");
   try {
-    return JSON.parse(text);
+    return { result: JSON.parse(text), model: modelName };
   } catch (_) {
     throw new Error("Gemini の応答を解析できませんでした");
   }
+}
+
+// API キーで利用可能な generateContent 対応の Gemini モデル一覧（popup のモデル候補用）
+async function listGeminiModels() {
+  const apiKey = await getApiKey();
+  if (!apiKey) throw new Error("Gemini API キーが設定されていません");
+  const models = [];
+  let pageToken = "";
+  for (let page = 0; page < 5; page++) {
+    const params = new URLSearchParams({ pageSize: "1000" });
+    if (pageToken) params.set("pageToken", pageToken);
+    const data = await fetchJson(`${GEMINI_ENDPOINT}?${params}`, { headers: { "x-goog-api-key": apiKey } });
+    for (const m of data.models || []) {
+      const name = String(m.name || "").replace(/^models\//, "");
+      const methods = m.supportedGenerationMethods || [];
+      if (/^gemini-/.test(name) && methods.includes("generateContent")) {
+        models.push({ id: name, label: m.displayName || name });
+      }
+    }
+    pageToken = data.nextPageToken;
+    if (!pageToken) break;
+  }
+  return models;
 }
 
 // ---------------------------------------------------------------------------
@@ -313,7 +370,7 @@ const TRANSLATION_PROVIDERS = {
     label: "Gemini (高精度LLM)",
     llm: true,
     async translate({ text, source, target, speaker, context, settings, apiKey }) {
-      const result = await geminiGenerate({
+      const { result } = await geminiGenerate({
         apiKey,
         model: settings.geminiModel,
         systemPrompt: buildSystemPrompt({ source, target, glossary: settings.glossary }),
@@ -457,7 +514,7 @@ async function transcribeAndTranslateAudio({ audioBase64, mimeType }, tabId) {
   const source = settings.targetLang;
   const target = settings.sourceLang;
 
-  const result = await geminiGenerate({
+  const { result } = await geminiGenerate({
     apiKey,
     model: settings.geminiModel,
     systemPrompt: buildSystemPrompt({ source, target, glossary: settings.glossary, audio: true }),
@@ -728,19 +785,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return respond(
         (async () => {
           const [settings, apiKey] = await Promise.all([getSettings(), getApiKey()]);
-          const text = await TRANSLATION_PROVIDERS.gemini.translate({
-            text: "uy salamat kaayo ha, i-send lang nako ang file unya after sa meeting",
-            source: "ceb-PH",
-            target: settings.sourceLang === "ceb-PH" ? "en-US" : settings.sourceLang,
-            speaker: "partner",
-            context: [],
-            settings,
+          const text = "uy salamat kaayo ha, i-send lang nako ang file unya after sa meeting";
+          const source = "ceb-PH";
+          const target = settings.sourceLang === "ceb-PH" ? "en-US" : settings.sourceLang;
+          const { result, model } = await geminiGenerate({
             apiKey,
+            model: settings.geminiModel,
+            systemPrompt: buildSystemPrompt({ source, target, glossary: settings.glossary }),
+            parts: [{ text: buildUserPrompt({ text, source, target, speaker: "partner", context: [] }) }],
+            schema: TRANSLATION_SCHEMA,
+            timeoutMs: LLM_TIMEOUT_MS,
           });
-          return { text };
+          return { text: String(result.translation || "").trim(), model, migrated: model !== validModel(settings.geminiModel) };
         })(),
         sendResponse,
       );
+
+    case "PVL_LIST_MODELS":
+      return respond(listGeminiModels().then((models) => ({ models })), sendResponse);
 
     case "PVL_OFFSCREEN_EVENT":
       handleOffscreenEvent(message).catch((err) => console.warn("[PolyVoice] offscreen event:", err));
@@ -767,11 +829,14 @@ async function updateBadge(enabled) {
 async function initSettings() {
   const stored = await chrome.storage.sync.get(null);
   const merged = { ...DEFAULT_SETTINGS, ...stored };
+  const version = stored.settingsVersion || 1;
   // v1 (フェーズ1) の既定値 "google" は、キーがあれば Gemini を使う "auto" に移行する
-  if ((stored.settingsVersion || 1) < SETTINGS_VERSION) {
-    if (merged.provider === "google") merged.provider = "auto";
-    merged.settingsVersion = SETTINGS_VERSION;
+  if (version < 2 && merged.provider === "google") merged.provider = "auto";
+  // v3: 新規ユーザーに提供終了した Gemini 1.x / 2.x モデルは現行の既定モデルに移行する
+  if (version < 3 && /^gemini-[12]\./.test(validModel(merged.geminiModel))) {
+    merged.geminiModel = DEFAULT_SETTINGS.geminiModel;
   }
+  merged.settingsVersion = SETTINGS_VERSION;
   await chrome.storage.sync.set(merged);
   await updateBadge(Boolean(merged.enabled));
 }
