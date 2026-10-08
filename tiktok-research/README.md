@@ -18,19 +18,29 @@
 
 ## しくみ
 
-取得はすべてサーバー側で行い、どこかで拒否されたら自動で予備に切り替わります。
+取得はすべてサーバー側で行い、だめなら自動で次の経路に切り替わります。
 
-| 用途 | 1番目 | 予備 |
-| --- | --- | --- |
-| プロフィール | tiktok.com の公開プロフィールページ | tikwm.com |
-| 投稿一覧 | tiktok.com の投稿一覧API（30件ずつ、新しい順） | tikwm.com |
-| 再生・保存 | tiktok.com の動画ページ → 配信元 | tikwm.com |
+| 用途 | 1番目 | 2番目 | 3番目 |
+| --- | --- | --- | --- |
+| プロフィール | tiktok.com の公開ページ | tikwm（公式API／無料版） | — |
+| 投稿一覧 | tikwm 公式API（`RAPIDAPI_KEY` 設定時） | tiktok.com の一覧API | 無料の tikwm.com |
+| 再生・保存 | tiktok.com の動画ページ → 配信元 | tikwm（公式API／無料版） | 「開いて保存」リンクで配信元を直接開く |
 
-- tikwm.com はクラウド（Vercel など）のサーバーからの接続を拒否（403）するため、Vercel 上では実質 tiktok.com の経路で動きます。
+- 無料の tikwm.com はクラウド（Vercel など）のサーバーを拒否（403）し、TikTok 本体の一覧APIもクラウドからは拒否（400）されることがあります。
+  そのため **Vercel で投稿一覧を使うには `RAPIDAPI_KEY` が必要** です（下の「RapidAPI キーの取得」参照）。自宅PCで動かす場合は不要です。
 - サーバーの中継先は TikTok／tikwm の配信元ドメインだけに制限しています。
 - **あなたのブラウザには Cookie を一切保存しません**。解析ツール・外部スクリプトもなし。ログインはブラウザ標準の「Basic認証」です。
-  （サーバーが tiktok.com の動画を取りに行くときだけ、TikTok から受け取った一時的な値をその場で使います。保存はしません）
 - 検索エンジンには載りません（`robots.txt` で全拒否＋`noindex`）。
+
+## RapidAPI キーの取得（Vercel で使う場合）
+
+1. https://rapidapi.com/tikwm-tikwm-default/api/tiktok-scraper7 を開き、Google アカウント等で RapidAPI に登録
+2. 「Pricing」で **Basic（無料）** プランの「Subscribe」を押す（無料枠の回数はページに表示されます）
+3. 「Endpoints」画面の右側にある `X-RapidAPI-Key` の値をコピー
+4. Vercel → tiktok-research プロジェクト → Settings → Environment Variables に
+   Key `RAPIDAPI_KEY`、Value にコピーした値を追加 → Deployments から Redeploy
+
+無料枠を使い切ると「利用回数の上限に達しました（429）」と表示されます。プロフィール・動画の保存は TikTok 本体から先に取るので、回数は主に投稿一覧（30件ごとに1回）で使います。
 
 ## 自分のパソコンで動かす
 

@@ -17,6 +17,7 @@ export type JobState = Job & {
   loaded: number;
   total: number;
   message?: string;
+  link?: string; // 自動保存できなかったときに、配信元を直接開くためのリンク
 };
 
 export function downloadUrl(job: Pick<Job, "id" | "author" | "kind" | "index">, extra: Record<string, string> = {}) {
@@ -94,7 +95,7 @@ export function useDownloads() {
         patch(job.key, { status: "done", loaded, total: total || loaded });
       } catch (e) {
         if (ctrl.signal.aborted) patch(job.key, { status: "cancelled", message: "中止しました" });
-        else patch(job.key, { status: "error", message: e instanceof Error ? e.message : "失敗しました" });
+        else patch(job.key, { status: "error", message: e instanceof Error ? e.message : "失敗しました", link: downloadUrl(job, { redirect: "1" }) });
       } finally {
         abort.current = null;
       }

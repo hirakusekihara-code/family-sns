@@ -10,6 +10,10 @@ import type { MediaKind, Profile, Video, VideoPage } from "./types";
 export const MOCK = process.env.TT_MOCK === "1";
 
 const TIKWM = "https://www.tikwm.com";
+// tikwm の公式API（RapidAPI 経由・キー認証）。無料の tikwm.com はクラウドのサーバーを拒否するが、こちらは使える
+const RAPIDAPI_HOST = "tiktok-scraper7.p.rapidapi.com";
+const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY?.trim() ?? "";
+export const HAS_RAPIDAPI = Boolean(RAPIDAPI_KEY);
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36";
 
@@ -51,16 +55,27 @@ async function cached<T>(key: string, ttlMs: number, load: () => Promise<T>): Pr
 type TikwmResponse = { code?: number; msg?: string; data?: unknown };
 
 async function tikwm(path: string, params: Record<string, string>): Promise<Record<string, unknown>> {
-  const url = `${TIKWM}${path}?${new URLSearchParams(params)}`;
+  // RapidAPI 版は同じ機能が "/api" を除いたパスにある（/user/info, /user/posts, /）
+  const url = RAPIDAPI_KEY
+    ? `https://${RAPIDAPI_HOST}${path.replace(/^\/api/, "") || "/"}?${new URLSearchParams(params)}`
+    : `${TIKWM}${path}?${new URLSearchParams(params)}`;
+  const headers: Record<string, string> = RAPIDAPI_KEY
+    ? { "x-rapidapi-key": RAPIDAPI_KEY, "x-rapidapi-host": RAPIDAPI_HOST, Accept: "application/json" }
+    : { "User-Agent": UA, Accept: "application/json" };
+  const name = RAPIDAPI_KEY ? "RapidAPI（tikwm 公式）" : "tikwm.com";
   for (let attempt = 0; attempt < 3; attempt++) {
     const body = await throttled(async () => {
       let res: Response;
       try {
-        res = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json" }, cache: "no-store", signal: AbortSignal.timeout(20_000) });
+        res = await fetch(url, { headers, cache: "no-store", signal: AbortSignal.timeout(20_000) });
       } catch {
-        throw new UpstreamError("取得元のサーバーに接続できませんでした");
+        throw new UpstreamError(`${name} に接続できませんでした`);
       }
-      if (!res.ok) throw new UpstreamError(`取得元（tikwm.com）がこのサーバーからの接続を拒否しました（${res.status}）`, res.status === 403 ? 503 : 502);
+      if (RAPIDAPI_KEY && (res.status === 401 || res.status === 403)) {
+        throw new UpstreamError(`RapidAPI のキーが無効か、プランに登録されていません（${res.status}）`, 503);
+      }
+      if (RAPIDAPI_KEY && res.status === 429) throw new UpstreamError("RapidAPI の利用回数の上限に達しました（429）", 429);
+      if (!res.ok) throw new UpstreamError(`取得元（${name}）がこのサーバーからの接続を拒否しました（${res.status}）`, res.status === 403 ? 503 : 502);
       return (await res.json().catch(() => ({}))) as TikwmResponse;
     });
     if (body.code === 0 && body.data && typeof body.data === "object") return body.data as Record<string, unknown>;
@@ -200,6 +215,8 @@ export async function getVideos(username: string, cursor: string): Promise<Video
   return cached(`v:${username.toLowerCase()}:${cursor}`, 3 * 60_000, async () => {
     // 続きのページは、最初に使った取得元と同じものを使う
     if (cursor && cursor !== "0" && !cursor.startsWith("t:")) return videosFromTikwm(username, cursor);
+    // RapidAPI のキーがあれば、確実に動くそちらを優先
+    if (HAS_RAPIDAPI && !cursor.startsWith("t:")) return videosFromTikwm(username, cursor);
     let failure: unknown;
     try {
       const { secUid } = await getProfile(username);
@@ -276,7 +293,8 @@ async function detailFromTiktok(url: string): Promise<VideoDetail | null> {
 }
 
 // url は動画ページのURL（短縮URLも可）
-export async function getVideoDetail(url: string): Promise<VideoDetail> {
+// preferTikwm: Cookie なしで開ける配信元URLが欲しいとき（ブラウザで直接開く用）
+export async function getVideoDetail(url: string, preferTikwm = false): Promise<VideoDetail> {
   if (MOCK) {
     const id = url.match(/(\d{5,25})/)?.[1] ?? "7300000000000000000";
     const v = mockVideos("sample", "0").videos[0];
@@ -284,7 +302,15 @@ export async function getVideoDetail(url: string): Promise<VideoDetail> {
   }
   const full = await resolveShortUrl(url);
   // 配信元の署名付きURLは数分で切れるので、キャッシュは短め
-  return cached(`d:${full.match(/\/(\d{5,25})/)?.[1] ?? full}`, 4 * 60_000, async () => {
+  const key = full.match(/\/(\d{5,25})/)?.[1] ?? full;
+  if (preferTikwm) {
+    try {
+      return await cached(`dw:${key}`, 4 * 60_000, async () => toDetail(await tikwm("/api/", { url: full, hd: "1" })));
+    } catch {
+      /* 下の通常経路へ */
+    }
+  }
+  return cached(`d:${key}`, 4 * 60_000, async () => {
     const fromTiktok = await detailFromTiktok(full);
     if (fromTiktok) return fromTiktok;
     return toDetail(await tikwm("/api/", { url: full, hd: "1" }));
