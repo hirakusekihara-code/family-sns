@@ -3,6 +3,7 @@
 export type Profile = {
   id: string;
   username: string; // @ のあとの名前（uniqueId）
+  secUid: string; // TikTok 内部のユーザーID（投稿一覧の取得に使う）
   nickname: string;
   avatar: string;
   bio: string;
