@@ -58,7 +58,11 @@ export default function DownloadPanel({ jobs, onStop, onClear }: { jobs: JobStat
                 {j.label}
               </span>
               <span className="tr-dl__state">
-                {j.status === "running" ? (j.total ? `${Math.round((j.loaded / j.total) * 100)}%` : mb(j.loaded)) : j.status === "done" ? mb(j.total) : j.status === "waiting" ? "待機中" : j.message}
+                {j.link ? (
+                  <a href={j.link} target="_blank" rel="noreferrer noopener" title={`${j.message ?? ""}\n開いた画面で「︙」または長押し →「保存」`}>
+                    開いて保存
+                  </a>
+                ) : j.status === "running" ? (j.total ? `${Math.round((j.loaded / j.total) * 100)}%` : mb(j.loaded)) : j.status === "done" ? mb(j.total) : j.status === "waiting" ? "待機中" : j.message}
               </span>
             </li>
           ))}
