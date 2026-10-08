@@ -4,7 +4,8 @@ import { ExternalLink, X } from "lucide-react";
 import { compact, engagementOf, percent } from "@/lib/stats";
 import type { Video } from "@/lib/types";
 import MediaButtons from "./MediaButtons";
-import { downloadUrl, type Job } from "./useDownloads";
+import PreviewVideo, { PreviewImage } from "./PreviewVideo";
+import type { Job } from "./useDownloads";
 import { formatDate } from "./VideoCard";
 
 export default function VideoModal({ video, onClose, onDownload }: { video: Video; onClose: () => void; onDownload: (jobs: Job[]) => void }) {
@@ -34,19 +35,11 @@ export default function VideoModal({ video, onClose, onDownload }: { video: Vide
           {video.isPhoto ? (
             <div className="tr-photos">
               {Array.from({ length: Math.max(video.imageCount, 1) }, (_, i) => (
-                <img key={i} src={downloadUrl({ id: video.id, author: video.author, kind: "image", index: i }, { inline: "1" })} alt={`写真 ${i + 1}`} loading="lazy" />
+                <PreviewImage key={i} id={video.id} author={video.author} index={i} alt={`写真 ${i + 1}`} />
               ))}
             </div>
           ) : (
-            <video
-              key={video.id}
-              src={downloadUrl({ id: video.id, author: video.author, kind: "sd" }, { inline: "1" })}
-              poster={video.cover || undefined}
-              controls
-              autoPlay
-              playsInline
-              preload="metadata"
-            />
+            <PreviewVideo key={video.id} id={video.id} author={video.author} poster={video.cover} autoPlay />
           )}
         </div>
         <div className="tr-modal__info">

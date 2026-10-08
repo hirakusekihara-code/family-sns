@@ -1,7 +1,8 @@
 "use client";
 import { Download, ExternalLink, Images, Music, Video as VideoIcon } from "lucide-react";
 import type { MediaKind } from "@/lib/types";
-import { downloadUrl, type Job } from "./useDownloads";
+import { directMediaUrl } from "@/lib/direct";
+import type { Job } from "./useDownloads";
 
 type Target = { id: string; author: string; title: string; isPhoto: boolean; imageCount: number };
 
@@ -52,15 +53,27 @@ export default function MediaButtons({ target, available, onDownload }: { target
         </button>
       )}
       {!target.isPhoto && (
-        <a
+        <button
+          type="button"
           className="tr-btn tr-btn--ghost tr-btn--sm"
-          href={downloadUrl({ id: target.id, author: target.author, kind: "hd" }, { redirect: "1" })}
-          target="_blank"
-          rel="noreferrer noopener"
-          title="保存がうまくいかないときは、配信元のファイルを直接開いて保存できます"
+          title="保存がうまくいかないときは、配信元のファイルを直接開いて、開いた画面から保存できます"
+          onClick={async () => {
+            // ポップアップがブロックされないよう、先に空のタブを開いておく
+            const tab = window.open("about:blank", "_blank");
+            try {
+              const url = await directMediaUrl(target.id, target.author, "hd");
+              if (tab) {
+                tab.opener = null;
+                tab.location.href = url;
+              } else window.location.href = url;
+            } catch (e) {
+              tab?.close();
+              window.alert(e instanceof Error ? e.message : "開けませんでした");
+            }
+          }}
         >
           <ExternalLink size={16} /> 直接開く
-        </a>
+        </button>
       )}
     </div>
   );
