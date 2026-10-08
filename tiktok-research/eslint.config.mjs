@@ -5,6 +5,8 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+  // 画像はTikTokのCDNから直接表示する（next/image の最適化サーバーは使わない）
+  { rules: { "@next/next/no-img-element": "off" } },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:
@@ -12,8 +14,6 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
-    // 別アプリ（独自の設定で検査）
-    "tiktok-research/**",
   ]),
 ]);
 
