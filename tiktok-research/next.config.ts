@@ -10,8 +10,9 @@ const csp = [
   `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
-  "media-src 'self' blob:",
-  "connect-src 'self'",
+  "media-src 'self' blob: https:",
+  // サーバーが取得元に拒否されたとき、ブラウザから直接 tikwm と配信元に取りに行く
+  "connect-src 'self' https:",
   "font-src 'self'",
   "frame-ancestors 'none'",
   "base-uri 'self'",

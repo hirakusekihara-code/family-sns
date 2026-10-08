@@ -3,7 +3,7 @@
 // 2) プロフィールだけは tiktok.com の公開ページに埋め込まれたJSONでも代替できる
 // 公開アカウントの公開情報だけを扱う。非公開アカウントの中身を取りに行くことはしない。
 import "server-only";
-import { absolutize, isValidVideoId, normalizeProfile, normalizeVideo } from "./parse";
+import { absolutize, extractItemStruct, isValidVideoId, normalizeProfile, normalizeTiktokItem, normalizeVideo } from "./parse";
 import { mockProfile, mockVideos } from "./mock";
 import type { MediaKind, Profile, Video, VideoPage } from "./types";
 
@@ -60,7 +60,7 @@ async function tikwm(path: string, params: Record<string, string>): Promise<Reco
       } catch {
         throw new UpstreamError("取得元のサーバーに接続できませんでした");
       }
-      if (!res.ok) throw new UpstreamError(`取得元のサーバーがエラーを返しました（${res.status}）`);
+      if (!res.ok) throw new UpstreamError(`取得元（tikwm.com）がこのサーバーからの接続を拒否しました（${res.status}）`, res.status === 403 ? 503 : 502);
       return (await res.json().catch(() => ({}))) as TikwmResponse;
     });
     if (body.code === 0 && body.data && typeof body.data === "object") return body.data as Record<string, unknown>;
@@ -100,16 +100,12 @@ async function profileFromTiktok(username: string): Promise<Profile | null> {
 export async function getProfile(username: string): Promise<Profile> {
   if (MOCK) return mockProfile(username);
   return cached(`p:${username.toLowerCase()}`, 5 * 60_000, async () => {
-    let failure: unknown = new UpstreamError("プロフィールを読み取れませんでした");
-    try {
-      const p = normalizeProfile(await tikwm("/api/user/info", { unique_id: username }), "tikwm");
-      if (p) return p;
-    } catch (e) {
-      failure = e;
-    }
-    const alt = await profileFromTiktok(username);
-    if (alt) return alt;
-    throw failure;
+    // tiktok.com の公開ページを優先（Vercel からも読める）。だめなら tikwm
+    const fromTiktok = await profileFromTiktok(username);
+    if (fromTiktok) return fromTiktok;
+    const p = normalizeProfile(await tikwm("/api/user/info", { unique_id: username }), "tikwm");
+    if (p) return p;
+    throw new UpstreamError("プロフィールを読み取れませんでした");
   });
 }
 
@@ -131,6 +127,7 @@ export async function getVideos(username: string, cursor: string): Promise<Video
 export type VideoDetail = Video & {
   media: Partial<Record<Exclude<MediaKind, "image">, string>>;
   images: string[];
+  cookie?: string; // tiktok.com の配信元から取るときに必要
 };
 
 function toDetail(data: Record<string, unknown>): VideoDetail {
@@ -148,6 +145,42 @@ function toDetail(data: Record<string, unknown>): VideoDetail {
   return { ...base, media, images };
 }
 
+// vm.tiktok.com/xxx などの短縮URLを、本来の動画URLに展開する
+async function resolveShortUrl(url: string): Promise<string> {
+  if (/\/video\/\d+|\/photo\/\d+/.test(url)) return url;
+  try {
+    const res = await fetch(url, { headers: { "User-Agent": UA }, redirect: "follow", cache: "no-store", signal: AbortSignal.timeout(15_000) });
+    await res.body?.cancel();
+    return res.url || url;
+  } catch {
+    return url;
+  }
+}
+
+// tiktok.com の動画ページを直接読む（Vercel からも接続できる経路）。
+// 配信元のファイルは、そのページで受け取った Cookie を付けないと拒否されるので一緒に保持する。
+async function detailFromTiktok(url: string): Promise<VideoDetail | null> {
+  const m = url.match(/\/(?:video|photo)\/(\d+)/);
+  if (!m) return null;
+  try {
+    const res = await fetch(`https://www.tiktok.com/@_/video/${m[1]}?lang=ja`, {
+      headers: { "User-Agent": UA, "Accept-Language": "ja,en;q=0.8", Accept: "text/html" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) return null;
+    const parsed = normalizeTiktokItem(extractItemStruct(await res.text()));
+    if (!parsed || (!parsed.media.hd && !parsed.images.length)) return null;
+    const cookie = res.headers
+      .getSetCookie()
+      .map((c) => c.split(";")[0])
+      .join("; ");
+    return { ...parsed.video, media: parsed.media, images: parsed.images, cookie };
+  } catch {
+    return null;
+  }
+}
+
 // url は動画ページのURL（短縮URLも可）
 export async function getVideoDetail(url: string): Promise<VideoDetail> {
   if (MOCK) {
@@ -155,7 +188,13 @@ export async function getVideoDetail(url: string): Promise<VideoDetail> {
     const v = mockVideos("sample", "0").videos[0];
     return { ...v, id, media: {}, images: [] };
   }
-  return cached(`d:${url}`, 10 * 60_000, async () => toDetail(await tikwm("/api/", { url, hd: "1" })));
+  const full = await resolveShortUrl(url);
+  // 配信元の署名付きURLは数分で切れるので、キャッシュは短め
+  return cached(`d:${full.match(/\/(\d{5,25})/)?.[1] ?? full}`, 4 * 60_000, async () => {
+    const fromTiktok = await detailFromTiktok(full);
+    if (fromTiktok) return fromTiktok;
+    return toDetail(await tikwm("/api/", { url: full, hd: "1" }));
+  });
 }
 
 export function videoPageUrl(id: string, author: string): string {
@@ -178,9 +217,10 @@ export function assertMediaUrl(raw: string): URL {
   return u;
 }
 
-export async function fetchMedia(url: URL, range: string | null): Promise<Response> {
+export async function fetchMedia(url: URL, range: string | null, cookie?: string): Promise<Response> {
   const headers: Record<string, string> = { "User-Agent": UA, Referer: "https://www.tiktok.com/" };
   if (range) headers.Range = range;
+  if (cookie && /(^|\.)tiktok\.com$/i.test(url.hostname)) headers.Cookie = cookie;
   let res: Response;
   try {
     res = await fetch(url, { headers, cache: "no-store", redirect: "follow" });

@@ -1,5 +1,5 @@
 // GET /api/download?id=動画ID&author=ユーザー名&kind=hd|sd|wm|music|image&i=画像番号
-//   → ファイルを中継して保存させる（inline=1 ならその場で再生、redirect=1 なら配信元へ直接移動）
+//   → ファイルを中継して保存させる（inline=1 ならその場で再生）
 import { failure, json } from "@/lib/http";
 import { isValidUsername, isValidVideoId, safeFilename } from "@/lib/parse";
 import { MOCK, assertMediaUrl, fetchMedia, getVideoDetail, videoPageUrl } from "@/lib/tikwm";
@@ -49,9 +49,7 @@ export async function GET(request: Request) {
     if (!source) return json({ error: "この投稿ではその形式は取得できません" }, 404);
     const target = assertMediaUrl(source);
 
-    if (p.get("redirect") === "1") return Response.redirect(target.toString(), 302);
-
-    const upstream = await fetchMedia(target, request.headers.get("range"));
+    const upstream = await fetchMedia(target, request.headers.get("range"), detail.cookie);
     const suffix = kind === "image" ? `_${index + 1}` : kind === "wm" ? "_wm" : kind === "music" ? "_audio" : "";
     const filename = safeFilename(`${detail.author || author || "tiktok"}_${id}${suffix}`) + `.${ext}`;
     const headers = new Headers({

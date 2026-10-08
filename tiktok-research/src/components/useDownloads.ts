@@ -1,6 +1,8 @@
 "use client";
 // ダウンロードを1件ずつ順番に実行し、進み具合を表示するための仕組み
 import { useCallback, useRef, useState } from "react";
+import { directMediaUrl } from "@/lib/direct";
+import { safeFilename } from "@/lib/parse";
 import type { MediaKind } from "@/lib/types";
 
 export type Job = {
@@ -17,6 +19,7 @@ export type JobState = Job & {
   loaded: number;
   total: number;
   message?: string;
+  link?: string; // 自動保存できなかったときに、手動で開くための配信元URL
 };
 
 export function downloadUrl(job: Pick<Job, "id" | "author" | "kind" | "index">, extra: Record<string, string> = {}) {
@@ -64,12 +67,7 @@ export function useDownloads() {
       const ctrl = new AbortController();
       abort.current = ctrl;
       patch(job.key, { status: "running", loaded: 0, total: 0 });
-      try {
-        const res = await fetch(downloadUrl(job), { signal: ctrl.signal });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error((body as { error?: string }).error ?? `失敗しました（${res.status}）`);
-        }
+      const receive = async (res: Response, fallbackName: string) => {
         const total = Number(res.headers.get("content-length") ?? 0);
         const reader = res.body?.getReader();
         const chunks: BlobPart[] = [];
@@ -90,11 +88,40 @@ export function useDownloads() {
           chunks.push(await res.arrayBuffer());
         }
         const type = res.headers.get("content-type") ?? "application/octet-stream";
-        saveBlob(new Blob(chunks, { type }), filenameFrom(res, `${job.author}_${job.id}`));
+        saveBlob(new Blob(chunks, { type }), filenameFrom(res, fallbackName));
         patch(job.key, { status: "done", loaded, total: total || loaded });
+      };
+      const ext = job.kind === "music" ? "mp3" : job.kind === "image" ? "jpg" : "mp4";
+      const name = safeFilename(`${job.author}_${job.id}${job.kind === "image" ? `_${(job.index ?? 0) + 1}` : job.kind === "wm" ? "_wm" : job.kind === "music" ? "_audio" : ""}`) + `.${ext}`;
+      try {
+        // 1) サーバー経由（ファイル名つきで確実に保存できる）
+        const res = await fetch(downloadUrl(job), { signal: ctrl.signal });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error((body as { error?: string }).error ?? `失敗しました（${res.status}）`);
+        }
+        await receive(res, name);
       } catch (e) {
-        if (ctrl.signal.aborted) patch(job.key, { status: "cancelled", message: "中止しました" });
-        else patch(job.key, { status: "error", message: e instanceof Error ? e.message : "失敗しました" });
+        if (ctrl.signal.aborted) {
+          patch(job.key, { status: "cancelled", message: "中止しました" });
+        } else {
+          // 2) ブラウザから直接、配信元のファイルを取りに行く
+          let link: string | undefined;
+          try {
+            link = await directMediaUrl(job.id, job.author, job.kind, job.index);
+            const res = await fetch(link, { signal: ctrl.signal, credentials: "omit", referrerPolicy: "no-referrer" });
+            if (!res.ok) throw new Error(String(res.status));
+            await receive(res, name);
+          } catch {
+            if (ctrl.signal.aborted) patch(job.key, { status: "cancelled", message: "中止しました" });
+            else
+              patch(job.key, {
+                status: "error",
+                message: link ? "自動保存できませんでした" : e instanceof Error ? e.message : "失敗しました",
+                link,
+              });
+          }
+        }
       } finally {
         abort.current = null;
       }

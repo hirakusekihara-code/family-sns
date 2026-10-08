@@ -132,3 +132,84 @@ export function normalizeVideo(raw: unknown, fallbackAuthor = ""): Video | null 
 export function safeFilename(name: string): string {
   return name.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, "_").replace(/\s+/g, " ").trim().slice(0, 120) || "tiktok";
 }
+
+// ---------- tiktok.com の動画ページに埋め込まれた itemStruct ----------
+export type ItemMedia = {
+  video: Video;
+  media: { hd?: string; sd?: string; wm?: string; music?: string };
+  images: string[];
+};
+
+// 動画ページの __UNIVERSAL_DATA_FOR_REHYDRATION__ から itemStruct を取り出す
+export function extractItemStruct(html: string): unknown {
+  const m = html.match(/<script[^>]+id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/);
+  if (!m) return null;
+  try {
+    return JSON.parse(m[1])?.__DEFAULT_SCOPE__?.["webapp.video-detail"]?.itemInfo?.itemStruct ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function normalizeTiktokItem(raw: unknown): ItemMedia | null {
+  const it = obj(raw);
+  const id = str(it.id);
+  if (!id) return null;
+  const author = obj(it.author);
+  const stats = obj(it.statsV2 && Object.keys(obj(it.statsV2)).length ? it.statsV2 : it.stats);
+  const v = obj(it.video);
+  const music = obj(it.music);
+  const images = (Array.isArray(obj(it.imagePost).images) ? (obj(it.imagePost).images as unknown[]) : [])
+    .map((img) => {
+      const list = obj(obj(img).imageURL).urlList;
+      return Array.isArray(list) ? str(...list) : "";
+    })
+    .filter(Boolean);
+
+  // 最高画質を選ぶ（ブラウザで再生しやすい H.264 を優先）
+  type Rate = { url: string; pixels: number; bitrate: number; h264: boolean };
+  const rates: Rate[] = (Array.isArray(v.bitrateInfo) ? v.bitrateInfo : [])
+    .map((b) => {
+      const r = obj(b);
+      const play = obj(r.PlayAddr);
+      const urls = Array.isArray(play.UrlList) ? play.UrlList : [];
+      return {
+        url: str(...urls),
+        pixels: num(play.Width) * num(play.Height),
+        bitrate: num(r.Bitrate),
+        h264: /h264|avc/i.test(str(r.CodecType)) || !/bytevc|h265|hevc/i.test(str(r.CodecType, r.GearName)),
+      };
+    })
+    .filter((r) => r.url);
+  const best = (list: Rate[]) => [...list].sort((a, b) => b.pixels - a.pixels || b.bitrate - a.bitrate)[0]?.url;
+  const sd = str(v.playAddr);
+  const hd = best(rates.filter((r) => r.h264)) || best(rates) || sd;
+
+  const media: ItemMedia["media"] = {};
+  if (hd) media.hd = hd;
+  if (sd) media.sd = sd;
+  if (str(v.downloadAddr)) media.wm = str(v.downloadAddr);
+  if (str(music.playUrl)) media.music = str(music.playUrl);
+
+  return {
+    video: {
+      id,
+      author: str(author.uniqueId),
+      title: str(it.desc),
+      cover: str(v.cover, v.originCover, v.dynamicCover),
+      duration: num(v.duration),
+      createdAt: num(it.createTime),
+      views: num(stats.playCount),
+      likes: num(stats.diggCount),
+      comments: num(stats.commentCount),
+      shares: num(stats.shareCount),
+      saves: num(stats.collectCount),
+      pinned: Boolean(it.isPinnedItem),
+      isPhoto: images.length > 0,
+      imageCount: images.length,
+      music: [str(music.title), str(music.authorName)].filter(Boolean).join(" - "),
+    },
+    media,
+    images,
+  };
+}

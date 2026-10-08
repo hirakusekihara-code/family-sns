@@ -72,3 +72,41 @@ test("research / sort / csv", () => {
   assert.equal(compact(12345), "1.2万");
   assert.equal(safeFilename('a/b:c*"d'), "a_b_c_d");
 });
+
+test("tiktok.com の動画ページを読む", async () => {
+  const { extractItemStruct, normalizeTiktokItem } = await import("./parse.ts");
+  const item = {
+    id: "7300000000000000001",
+    desc: "hello #a",
+    createTime: "1700000000",
+    author: { uniqueId: "abc" },
+    stats: { playCount: 10, diggCount: 2 },
+    statsV2: { playCount: "1000", diggCount: "20", commentCount: "3", shareCount: "4", collectCount: "5" },
+    video: {
+      playAddr: "https://v16-webapp-prime.tiktok.com/sd.mp4",
+      downloadAddr: "https://v16-webapp-prime.tiktok.com/wm.mp4",
+      cover: "https://p16-sign.tiktokcdn.com/c.jpg",
+      duration: 12,
+      bitrateInfo: [
+        { Bitrate: 900, CodecType: "h264", PlayAddr: { UrlList: ["https://x.tiktok.com/720.mp4"], Width: 720, Height: 1280 } },
+        { Bitrate: 2000, CodecType: "bytevc1", PlayAddr: { UrlList: ["https://x.tiktok.com/1080h265.mp4"], Width: 1080, Height: 1920 } },
+        { Bitrate: 500, CodecType: "h264", PlayAddr: { UrlList: ["https://x.tiktok.com/540.mp4"], Width: 540, Height: 960 } },
+      ],
+    },
+    music: { title: "song", authorName: "me", playUrl: "https://sf16.tiktokcdn.com/m.mp3" },
+  };
+  const html = `<html><script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">${JSON.stringify({
+    __DEFAULT_SCOPE__: { "webapp.video-detail": { itemInfo: { itemStruct: item } } },
+  })}</script></html>`;
+  const r = normalizeTiktokItem(extractItemStruct(html));
+  assert.equal(r?.video.views, 1000);
+  assert.equal(r?.video.author, "abc");
+  assert.equal(r?.media.hd, "https://x.tiktok.com/720.mp4"); // H.264 の最高画質
+  assert.equal(r?.media.sd, "https://v16-webapp-prime.tiktok.com/sd.mp4");
+  assert.equal(r?.media.wm, "https://v16-webapp-prime.tiktok.com/wm.mp4");
+  assert.equal(r?.media.music, "https://sf16.tiktokcdn.com/m.mp3");
+  const photo = normalizeTiktokItem({ id: "1", imagePost: { images: [{ imageURL: { urlList: ["https://p.tiktokcdn.com/1.jpg"] } }] } });
+  assert.equal(photo?.video.isPhoto, true);
+  assert.deepEqual(photo?.images, ["https://p.tiktokcdn.com/1.jpg"]);
+  assert.equal(extractItemStruct("<html></html>"), null);
+});
