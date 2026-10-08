@@ -109,17 +109,111 @@ export async function getProfile(username: string): Promise<Profile> {
   });
 }
 
+// ---------- 投稿一覧：TikTok 本体のクリエイター用一覧API（署名不要、Vercel からも届く） ----------
+// cursor は「この時刻(ミリ秒)より前の投稿」を意味する。tikwm の cursor と区別するため "t:" を付けて返す。
+const TIKTOK_EPOCH_MS = 1_472_706_000_000; // 2016年9月（これより前の投稿は存在しない）
+const DEVICE_ID = String(7_250_000_000_000_000_000n + BigInt(Math.floor(Math.random() * 1e15)));
+
+async function tiktokListPage(secUid: string, username: string, cursorMs: number): Promise<{ items: unknown[]; hasMore: boolean }> {
+  const params = new URLSearchParams({
+    aid: "1988",
+    app_name: "tiktok_web",
+    app_language: "ja-JP",
+    browser_language: "ja",
+    browser_name: "Mozilla",
+    browser_online: "true",
+    browser_platform: "Win32",
+    browser_version: "5.0 (Windows)",
+    channel: "tiktok_web",
+    cookie_enabled: "true",
+    count: "30",
+    cursor: String(cursorMs),
+    device_id: DEVICE_ID,
+    device_platform: "web_pc",
+    focus_state: "true",
+    from_page: "user",
+    history_len: "2",
+    is_fullscreen: "false",
+    is_page_visible: "true",
+    language: "ja",
+    os: "windows",
+    priority_region: "",
+    referer: "",
+    region: "JP",
+    screen_height: "1080",
+    screen_width: "1920",
+    secUid,
+    type: "1", // 新しい → 古い の順
+    tz_name: "Asia/Tokyo",
+    verifyFp: `verify_${Math.random().toString(16).slice(2, 9)}`,
+    webcast_language: "ja",
+  });
+  let res: Response;
+  try {
+    res = await fetch(`https://www.tiktok.com/api/creator/item_list/?${params}`, {
+      headers: { "User-Agent": UA, Accept: "application/json", Referer: `https://www.tiktok.com/@${username}` },
+      cache: "no-store",
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch {
+    throw new UpstreamError("TikTok に接続できませんでした");
+  }
+  if (!res.ok) throw new UpstreamError(`TikTok が投稿一覧を返しませんでした（${res.status}）`);
+  const text = await res.text();
+  if (!text.trim()) throw new UpstreamError("TikTok が空の応答を返しました");
+  let body: Record<string, unknown>;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    throw new UpstreamError("TikTok の応答を読み取れませんでした");
+  }
+  return { items: Array.isArray(body.itemList) ? body.itemList : [], hasMore: Boolean(body.hasMorePrevious) };
+}
+
+async function videosFromTiktok(username: string, secUid: string, cursor: string): Promise<VideoPage> {
+  let cursorMs = cursor.startsWith("t:") && cursor.length > 2 ? Number(cursor.slice(2)) : Date.now();
+  // 投稿が少ない期間は空のページが返るので、数回さかのぼって探す
+  for (let tries = 0; tries < 6; tries++) {
+    const page = await tiktokListPage(secUid, username, cursorMs);
+    const videos = page.items
+      .map((it) => normalizeTiktokItem(it)?.video)
+      .filter((v): v is Video => Boolean(v))
+      .map((v) => ({ ...v, author: v.author || username }));
+    const oldest = videos.reduce((min, v) => (v.createdAt && v.createdAt * 1000 < min ? v.createdAt * 1000 : min), cursorMs);
+    const next = oldest < cursorMs ? oldest : cursorMs - 30 * 86_400_000;
+    const hasMore = page.hasMore && next > TIKTOK_EPOCH_MS;
+    if (videos.length || !hasMore) return { videos, cursor: `t:${next}`, hasMore };
+    cursorMs = next;
+  }
+  return { videos: [], cursor: `t:${cursorMs}`, hasMore: cursorMs > TIKTOK_EPOCH_MS };
+}
+
+async function videosFromTikwm(username: string, cursor: string): Promise<VideoPage> {
+  const data = await tikwm("/api/user/posts", { unique_id: username, count: "30", cursor: cursor || "0" });
+  const list = Array.isArray(data.videos) ? data.videos : [];
+  const videos = list.map((v) => normalizeVideo(v, username)).filter((v): v is Video => v !== null);
+  return { videos, cursor: String(data.cursor ?? ""), hasMore: Boolean(data.hasMore ?? data.has_more) && videos.length > 0 };
+}
+
 export async function getVideos(username: string, cursor: string): Promise<VideoPage> {
   if (MOCK) return mockVideos(username, cursor);
   return cached(`v:${username.toLowerCase()}:${cursor}`, 3 * 60_000, async () => {
-    const data = await tikwm("/api/user/posts", { unique_id: username, count: "30", cursor: cursor || "0" });
-    const list = Array.isArray(data.videos) ? data.videos : [];
-    const videos = list.map((v) => normalizeVideo(v, username)).filter((v): v is Video => v !== null);
-    return {
-      videos,
-      cursor: String(data.cursor ?? ""),
-      hasMore: Boolean(data.hasMore ?? data.has_more) && videos.length > 0,
-    };
+    // 続きのページは、最初に使った取得元と同じものを使う
+    if (cursor && cursor !== "0" && !cursor.startsWith("t:")) return videosFromTikwm(username, cursor);
+    let failure: unknown;
+    try {
+      const { secUid } = await getProfile(username);
+      if (secUid) return await videosFromTiktok(username, secUid, cursor);
+    } catch (e) {
+      failure = e;
+    }
+    if (cursor.startsWith("t:")) throw failure ?? new UpstreamError("投稿一覧を取得できませんでした");
+    try {
+      return await videosFromTikwm(username, cursor);
+    } catch (e) {
+      // 両方だめなら、TikTok 側の理由を優先して伝える
+      throw failure instanceof UpstreamError ? new UpstreamError(`${failure.message}／予備（tikwm）も失敗：${e instanceof Error ? e.message : ""}`) : e;
+    }
   });
 }
 

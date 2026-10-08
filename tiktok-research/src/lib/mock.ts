@@ -10,6 +10,7 @@ export function mockProfile(username: string): Profile {
   return {
     id: "6800000000000000000",
     username,
+    secUid: "",
     nickname: `サンプル ${username}`,
     avatar: svg("#fe2c55", "#25f4ee", "●"),
     bio: "これはサンプルデータです。\nTT_MOCK を外すと実際のTikTokから取得します。",

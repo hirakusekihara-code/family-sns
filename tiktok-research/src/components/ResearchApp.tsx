@@ -12,7 +12,6 @@ import {
   RotateCcw,
   Search,
 } from "lucide-react";
-import { directDetail, directProfile, directVideos } from "@/lib/direct";
 import { parseInput } from "@/lib/parse";
 import { compact, sortVideos, toCsv, type SortKey } from "@/lib/stats";
 import type { Profile, Video, VideoPage } from "@/lib/types";
@@ -23,38 +22,11 @@ import DownloadPanel from "./DownloadPanel";
 import SingleVideo, { type SingleVideoData } from "./SingleVideo";
 import { useDownloads, type Job } from "./useDownloads";
 
-class HttpError extends Error {
-  constructor(
-    message: string,
-    public status: number,
-  ) {
-    super(message);
-  }
-}
-
 async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(url, { signal });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new HttpError((body as { error?: string }).error ?? `エラー（${res.status}）`, res.status);
+  if (!res.ok) throw new Error((body as { error?: string }).error ?? `エラー（${res.status}）`);
   return body as T;
-}
-
-const msgOf = (e: unknown) => (e instanceof Error ? e.message : "取得できませんでした");
-
-// サーバー経由で失敗したら、ブラウザから直接取りに行く（入力ミス＝400 のときはやり直さない）
-async function withFallback<T>(server: () => Promise<T>, direct: () => Promise<T>, onDirect: () => void, signal?: AbortSignal): Promise<T> {
-  try {
-    return await server();
-  } catch (e) {
-    if (signal?.aborted || (e instanceof HttpError && e.status === 400)) throw e;
-    try {
-      const value = await direct();
-      onDirect();
-      return value;
-    } catch (e2) {
-      throw new Error(`${msgOf(e)}／ブラウザからの直接取得も失敗：${msgOf(e2)}`);
-    }
-  }
 }
 
 const SORTS: { key: SortKey; label: string }[] = [
@@ -86,12 +58,6 @@ export default function ResearchApp() {
   const [onlyVideos, setOnlyVideos] = useState(false);
   const [open, setOpen] = useState<Video | null>(null);
   const stopAllLoad = useRef(false);
-  const viaBrowser = useRef(false); // 一度サーバー経由が失敗したら、以降はブラウザから直接取得
-  const [direct, setDirect] = useState(false);
-  const markDirect = useCallback(() => {
-    viaBrowser.current = true;
-    setDirect(true);
-  }, []);
   const searchAbort = useRef<AbortController | null>(null);
   const downloads = useDownloads();
 
@@ -111,14 +77,8 @@ export default function ResearchApp() {
   }, []);
 
   const loadPage = useCallback(async (username: string, from: string, signal?: AbortSignal): Promise<VideoPage> => {
-    if (viaBrowser.current) return directVideos(username, from);
-    return withFallback(
-      () => getJson<VideoPage>(`/api/videos?${new URLSearchParams({ u: username, cursor: from })}`, signal),
-      () => directVideos(username, from),
-      markDirect,
-      signal,
-    );
-  }, [markDirect]);
+    return getJson<VideoPage>(`/api/videos?${new URLSearchParams({ u: username, cursor: from })}`, signal);
+  }, []);
 
   const appendPage = useCallback((page: VideoPage) => {
     setVideos((cur) => {
@@ -144,25 +104,10 @@ export default function ResearchApp() {
       setBusy(true);
       try {
         if (parsed.kind === "video") {
-          setSingle(
-            await withFallback(
-              () => getJson<SingleVideoData>(`/api/video?${new URLSearchParams({ url: parsed.url })}`, ctrl.signal),
-              async () => {
-                const { urls, images, ...v } = await directDetail(parsed.url);
-                return { ...v, available: Object.keys(urls), images: images.length };
-              },
-              markDirect,
-              ctrl.signal,
-            ),
-          );
+          setSingle(await getJson<SingleVideoData>(`/api/video?${new URLSearchParams({ url: parsed.url })}`, ctrl.signal));
           return;
         }
-        const p = await withFallback(
-          () => getJson<Profile>(`/api/profile?u=${encodeURIComponent(parsed.username)}`, ctrl.signal),
-          () => directProfile(parsed.username),
-          markDirect,
-          ctrl.signal,
-        );
+        const p = await getJson<Profile>(`/api/profile?u=${encodeURIComponent(parsed.username)}`, ctrl.signal);
         setProfile(p);
         if (p.isPrivate) return; // 非公開アカウントの動画は取得しない
         try {
@@ -176,7 +121,7 @@ export default function ResearchApp() {
         if (searchAbort.current === ctrl) setBusy(false);
       }
     },
-    [input, reset, loadPage, appendPage, markDirect],
+    [input, reset, loadPage, appendPage],
   );
 
   const loadMore = useCallback(async () => {
@@ -348,7 +293,6 @@ export default function ResearchApp() {
                   </span>
                 )}
                 {profile.source === "mock" && <span className="tr-chip tr-chip--warn">サンプルデータ</span>}
-                {direct && <span className="tr-chip" title="サーバーからの取得が拒否されたため、このブラウザから直接取得しています">ブラウザ経由で取得中</span>}
               </div>
             </div>
             <ul className="tr-stats">

@@ -8,7 +8,7 @@ export async function GET(request: Request) {
   const u = params.get("u")?.trim().replace(/^@/, "") ?? "";
   const cursor = params.get("cursor") ?? "0";
   if (!isValidUsername(u)) return json({ error: "ユーザー名が正しくありません" }, 400);
-  if (!/^\d{0,20}$/.test(cursor)) return json({ error: "cursor が正しくありません" }, 400);
+  if (!/^(t:)?\d{0,20}$/.test(cursor)) return json({ error: "cursor が正しくありません" }, 400);
   try {
     return json(await getVideos(u, cursor));
   } catch (e) {

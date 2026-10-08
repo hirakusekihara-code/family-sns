@@ -87,6 +87,7 @@ export function normalizeProfile(userInfo: unknown, source: Profile["source"]): 
   return {
     id: str(user.id, user.uid),
     username,
+    secUid: str(user.secUid, user.sec_uid),
     nickname: str(user.nickname) || username,
     avatar: absolutize(str(user.avatarLarger, user.avatarMedium, user.avatarThumb, user.avatar)),
     bio: str(user.signature),

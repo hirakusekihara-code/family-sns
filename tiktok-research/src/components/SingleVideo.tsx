@@ -3,8 +3,7 @@ import { ExternalLink } from "lucide-react";
 import { compact, engagementOf, percent } from "@/lib/stats";
 import type { Video } from "@/lib/types";
 import MediaButtons from "./MediaButtons";
-import PreviewVideo, { PreviewImage } from "./PreviewVideo";
-import type { Job } from "./useDownloads";
+import { downloadUrl, type Job } from "./useDownloads";
 import { formatDate } from "./VideoCard";
 
 export type SingleVideoData = Omit<Video, "imageCount"> & { available: string[]; images: number; imageCount?: number };
@@ -17,9 +16,9 @@ export default function SingleVideo({ data, onDownload }: { data: SingleVideoDat
     <section className="tr-card tr-single">
       <div className="tr-single__media">
         {video.isPhoto ? (
-          <PreviewImage id={video.id} author={video.author} index={0} alt="写真 1" />
+          <img src={downloadUrl({ id: video.id, author: video.author, kind: "image", index: 0 }, { inline: "1" })} alt="写真 1" />
         ) : (
-          <PreviewVideo id={video.id} author={video.author} poster={video.cover} />
+          <video src={downloadUrl({ id: video.id, author: video.author, kind: "sd" }, { inline: "1" })} poster={video.cover || undefined} controls playsInline preload="metadata" />
         )}
       </div>
       <div className="tr-single__info">
