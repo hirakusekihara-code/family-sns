@@ -6,7 +6,14 @@
 - 外部依存は `react` と `lucide-react` のみ。データはすべてメモリ上のモック（GPS・Teams・CSV はシミュレーション）。
 - Claude Artifacts（React）にそのまま貼り付けてプレビューできます。
 
-本リポジトリ（family-sns）の Next.js ビルドとは独立させるため、ルートの `tsconfig.json` で `cebu-sync` を除外しています。
+## 起動方法
+
+Next.js アプリの `/cebu-sync` ページとして組み込まれています（ログイン不要・全幅表示）。
+
+- Vercel: デプロイ（プレビュー）URL の末尾に `/cebu-sync` を付けて開く
+- ローカル: `npm run dev` → http://localhost:3000/cebu-sync
+
+Family SNS のスマホ枠レイアウト・ログイン画面とは別にするため、`src/app/(family)` と `src/app/(cebu)` の 2 つのルートグループに分け、それぞれにルートレイアウトを置いています（URL は従来どおり）。
 
 ## 主な機能
 
