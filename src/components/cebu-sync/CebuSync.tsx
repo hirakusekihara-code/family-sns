@@ -1,3 +1,5 @@
+"use client";
+
 /**
  * Cebu Sync — Phase 1 (簡易版)
  * セブ島オフィス（スタッフ5名・管理者不在）向け 業務マネジメント Web アプリ
@@ -523,6 +525,26 @@ function initialTasks(): Task[] {
   ];
 }
 
+/** タスクと移動ログの初期データ（Mark の移動中ログを BIR タスクに紐付け） */
+function initialTasksAndVisits(): { tasks: Task[]; visits: VisitLog[] } {
+  const tasks = initialTasks();
+  const bir = tasks.find((t) => t.assigneeId === 'mark' && t.destinationId === 'bir');
+  const visits: VisitLog[] = [
+    { id: 'v_seed_1', staffId: 'mark', taskId: bir?.id ?? '', destinationId: 'bir', departAt: minsAgo(18) },
+    {
+      id: 'v_seed_0',
+      staffId: 'john',
+      taskId: '',
+      destinationId: 'bdo',
+      departAt: minsAgo(60 * 26),
+      arriveAt: minsAgo(60 * 26 - 22),
+      returnAt: minsAgo(60 * 25),
+      pin: offsetPoint(10.3181, 123.9049, 15, 1),
+    },
+  ];
+  return { tasks, visits };
+}
+
 function initialAttendance(): Record<string, Attendance> {
   const t = todayStr();
   return {
@@ -694,22 +716,11 @@ export default function CebuSyncApp() {
   const [role, setRole] = useState<Role>('staff');
   const [meId, setMeId] = useState('alyssa');
   const [tab, setTab] = useState<TabKey>('dashboard');
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(() => Date.now());
   const [attendance, setAttendance] = useState<Record<string, Attendance>>(initialAttendance);
-  const [tasks, setTasks] = useState<Task[]>(initialTasks);
-  const [visits, setVisits] = useState<VisitLog[]>(() => [
-    { id: 'v_seed_1', staffId: 'mark', taskId: '', destinationId: 'bir', departAt: minsAgo(18) },
-    {
-      id: 'v_seed_0',
-      staffId: 'john',
-      taskId: '',
-      destinationId: 'bdo',
-      departAt: minsAgo(60 * 26),
-      arriveAt: minsAgo(60 * 26 - 22),
-      returnAt: minsAgo(60 * 25),
-      pin: offsetPoint(10.3181, 123.9049, 15, 1),
-    },
-  ]);
+  const [seed] = useState(initialTasksAndVisits);
+  const [tasks, setTasks] = useState<Task[]>(seed.tasks);
+  const [visits, setVisits] = useState<VisitLog[]>(seed.visits);
   const [students, setStudents] = useState<Student[]>(initialStudents);
   const [slots, setSlots] = useState<Slot[]>(initialSlots);
   const [bookings, setBookings] = useState<OnlineBooking[]>(initialBookings);
@@ -724,13 +735,6 @@ export default function CebuSyncApp() {
   const [gpsBusy, setGpsBusy] = useState(false);
   const [showAddTask, setShowAddTask] = useState(false);
   const [slotPops, setSlotPops] = useState<Record<string, number>>({});
-
-  // Mark の移動ログと BIR タスクを紐付け（初期データ）
-  useEffect(() => {
-    const bir = tasks.find((t) => t.assigneeId === 'mark' && t.destinationId === 'bir');
-    if (bir) setVisits((vs) => vs.map((v) => (v.id === 'v_seed_1' ? { ...v, taskId: bir.id } : v)));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // 1秒ごとの時計
   useEffect(() => {
@@ -1152,10 +1156,10 @@ export default function CebuSyncApp() {
 
         <main className="max-w-7xl mx-auto px-4 py-6">
           {tab === 'dashboard' && <DashboardTab />}
-          {tab === 'tasks' && <TasksTab />}
-          {tab === 'transit' && <TransitTab />}
+          {tab === 'tasks' && <TasksTab key={role} />}
+          {tab === 'transit' && <TransitTab key={`${role}-${meId}`} />}
           {tab === 'students' && <StudentsTab />}
-          {tab === 'dtr' && <DTRTab />}
+          {tab === 'dtr' && <DTRTab key={`${role}-${meId}`} />}
         </main>
 
         <footer className="text-center text-xs text-slate-400 pb-8">
@@ -1696,11 +1700,6 @@ function TasksTab() {
   const [view, setView] = useState<TaskView>(role === 'gm' ? 'gm' : role === 'hqo' ? 'hqo' : 'list');
   const [filter, setFilter] = useState<TaskFilter>(role === 'staff' ? 'mine' : 'all');
   const [expanded, setExpanded] = useState<string | null>(null);
-
-  useEffect(() => {
-    setView(role === 'gm' ? 'gm' : role === 'hqo' ? 'hqo' : 'list');
-    setFilter(role === 'staff' ? 'mine' : 'all');
-  }, [role]);
 
   const gmTray = tasks.filter((t) => t.approval?.type === 'GM');
   const hqoTray = tasks.filter((t) => t.approval?.type === 'HQO');
@@ -2379,18 +2378,6 @@ function TransitTab() {
   const [destId, setDestId] = useState<string>(sel?.destinationId ?? DESTINATIONS[0].id);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const t = tasks.find((x) => x.id === selected);
-    if (t?.destinationId) setDestId(t.destinationId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected]);
-
-  useEffect(() => {
-    // ロール/スタッフ切替時に選択をリセット
-    setSelected(active?.id ?? myOutings.find((t) => t.status !== 'done')?.id ?? '');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [me.id]);
-
   const onField = attendance[me.id].status;
   const curVisit = sel ? visits.find((v) => v.taskId === sel.id && !v.returnAt) : undefined;
   const busyElsewhere = !!active && active.id !== sel?.id;
@@ -2421,7 +2408,15 @@ function TransitTab() {
             ) : (
               <>
                 <label className={labelCls}>外出タスクを選択</label>
-                <select className={inputCls} value={selected} onChange={(e) => setSelected(e.target.value)}>
+                <select
+                  className={inputCls}
+                  value={selected}
+                  onChange={(e) => {
+                    setSelected(e.target.value);
+                    const t = tasks.find((x) => x.id === e.target.value);
+                    if (t?.destinationId) setDestId(t.destinationId);
+                  }}
+                >
                   <option value="">— 選択してください —</option>
                   {myOutings.map((t) => (
                     <option key={t.id} value={t.id}>
@@ -3091,8 +3086,6 @@ function DTRTab() {
   const [staffFilter, setStaffFilter] = useState<string>(role === 'staff' ? me.id : 'all');
   const [csv, setCsv] = useState<string | null>(null);
 
-  useEffect(() => setStaffFilter(role === 'staff' ? me.id : 'all'), [role, me.id]);
-
   const today = todayStr();
   const liveRows: DTRRow[] = STAFF.map((s) => {
     const a = attendance[s.id];
@@ -3115,7 +3108,7 @@ function DTRTab() {
     };
   });
 
-  const from = useMemo(() => {
+  const from = (() => {
     const d = new Date();
     if (period === 'today') return today;
     if (period === 'week') {
@@ -3123,7 +3116,7 @@ function DTRTab() {
       return ymd(addDays(d, -dow));
     }
     return ymd(new Date(d.getFullYear(), d.getMonth(), 1));
-  }, [period, today]);
+  })();
 
   const rows = [...history, ...liveRows]
     .filter((r) => r.date >= from && r.date <= today)
