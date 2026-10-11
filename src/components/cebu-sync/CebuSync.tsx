@@ -3563,6 +3563,8 @@ function StudentsTab() {
         <StudentForm />
         <StudentList />
       </div>
+      {/* 生徒登録 → 科目設定 → 講師アサイン の順（セブオフィスのスタッフが日常的に使う） */}
+      <SubjectMasterCard />
       <Timetable />
       <OnlineLessons />
     </div>
@@ -4723,8 +4725,8 @@ function SubjectMasterCard() {
     <Card title={L('📚 Subject Master', '📚 科目マスター')} icon={<GraduationCap className="w-5 h-5 text-pink-600" />}>
       <p className="text-xs text-slate-500 mb-3">
         {L(
-          'Subjects you add here appear in the in-person timetable (Students & Lessons tab).',
-          'ここで追加した科目は、生徒・レッスンタブの対面授業タイムテーブルで選べるようになります。',
+          'Anyone (Staff, GM, HQO) can add or remove subjects. They appear right away in the in-person timetable.',
+          'スタッフ・GM・HQO の誰でも科目を追加・削除できます。追加した科目はすぐに対面授業タイムテーブルで選べます。',
         )}
       </p>
       <div className="flex flex-wrap gap-2">

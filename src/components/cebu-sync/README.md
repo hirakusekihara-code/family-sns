@@ -47,6 +47,6 @@ Family SNS のスマホ枠レイアウト・ログイン画面とは別にする
 - 日付と生徒を選ぶと、受講期間内であればその生徒のコマだけが表に並び、各コマで科目（科目マスター）と担当講師を選べます
 - 同じ日・同じコマで別の生徒を担当中の講師は「(Busy)」表示で選べず、万一選ばれてもエラー表示で拒否します
 - 講師をアサインすると、その日が今日ならその講師の「本日のマイルストーン」に自動追加されます
-- 科目マスター（初期: Speaking / Listening / Reading / Writing / Vocabulary / Grammar / Pronunciation / Business English）は GM / HQO のスタッフ設定タブで追加・削除できます
+- 科目マスター（初期: Speaking / Listening / Reading / Writing / Vocabulary / Grammar / Pronunciation / Business English）は、生徒・レッスンタブ（Staff を含む全ロール）と GM / HQO のスタッフ設定タブのどちらからでも追加・削除できます（同じデータ）
 
 上部のロールバーで `👤 Staff`（▾でスタッフ切替）/ `👔 GM` / `🏦 HQO` を1クリックで切り替えられます。
