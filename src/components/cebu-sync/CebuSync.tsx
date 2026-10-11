@@ -188,9 +188,12 @@ interface VisitLog {
 interface Student {
   id: string;
   name: string;
-  ageGroup: 'Kids' | 'Adult';
-  levelSystem: 'CEFR' | 'EIKEN';
-  level: string;
+  /** 生年月日（YYYY-MM-DD）。学年マークはここから毎回自動計算する */
+  dob: string;
+  /** CEFR レベル（CEFR_LEVELS の値。'' = 未設定） */
+  cefr: string;
+  /** 英検の級（EIKEN_LEVELS の id。'' = 未設定） */
+  eiken: string;
   mode: 'face' | 'online';
   pastLessons: number;
   /** 対面のみ: 受講期間（YYYY-MM-DD） */
@@ -208,9 +211,13 @@ interface StdSlot {
   end: string;
 }
 
+type ClassType = '1on1' | 'group';
+
 interface Subject {
   id: string;
   name: Text;
+  /** 1on1 = マンツーマン、group = グループクラス（同じ講師・同じコマ・同じ科目なら複数生徒OK） */
+  classType: ClassType;
   custom?: boolean;
 }
 
@@ -382,23 +389,90 @@ const BLOCKERS: Record<BlockerReason, Bi> = {
   overload: bi('⏳ Too Much Work', '⏳ 業務過多'),
 };
 
-const CEFR_LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
-const EIKEN_LEVELS = ['5級', '4級', '3級', '準2級', '2級', '準1級', '1級'];
-const EIKEN_EN: Record<string, string> = {
-  '5級': 'Grade 5',
-  '4級': 'Grade 4',
-  '3級': 'Grade 3',
-  '準2級': 'Grade Pre-2',
-  '2級': 'Grade 2',
-  '準1級': 'Grade Pre-1',
-  '1級': 'Grade 1',
+/** CEFR: 下から Pre-A1 〜 C2 */
+const CEFR_LEVELS = ['Pre-A1', 'A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+/** 英検: Bronze / Silver / Gold（英検Jr.）→ 5級 〜 1級（下から順） */
+const EIKEN_LEVELS: Array<{ id: string; label: Bi }> = [
+  { id: 'bronze', label: bi('Bronze', 'ブロンズ') },
+  { id: 'silver', label: bi('Silver', 'シルバー') },
+  { id: 'gold', label: bi('Gold', 'ゴールド') },
+  { id: '5', label: bi('Grade 5', '5級') },
+  { id: '4', label: bi('Grade 4', '4級') },
+  { id: '3', label: bi('Grade 3', '3級') },
+  { id: 'pre2', label: bi('Grade Pre-2', '準2級') },
+  { id: '2', label: bi('Grade 2', '2級') },
+  { id: 'pre1', label: bi('Grade Pre-1', '準1級') },
+  { id: '1', label: bi('Grade 1', '1級') },
+];
+const eikenName = (lang: Lang, id: string) => {
+  const e = EIKEN_LEVELS.find((x) => x.id === id);
+  return e ? tx(lang, e.label) : '';
 };
-const levelName = (lang: Lang, system: Student['levelSystem'], level: string) =>
-  system === 'CEFR' ? level : lang === 'ja' ? level : EIKEN_EN[level] ?? level;
-const levelText = (lang: Lang, s: Pick<Student, 'levelSystem' | 'level'>) =>
-  `${s.levelSystem === 'CEFR' ? 'CEFR' : lang === 'ja' ? '英検' : 'EIKEN'} ${levelName(lang, s.levelSystem, s.level)}`;
+/** テキスト表示用: "CEFR A2 · EIKEN Grade 3"（未設定は —） */
+const levelText = (lang: Lang, s: Pick<Student, 'cefr' | 'eiken'>) =>
+  `CEFR ${s.cefr || '—'} · ${lang === 'ja' ? '英検' : 'EIKEN'} ${eikenName(lang, s.eiken) || '—'}`;
 
 const HQO_THRESHOLD = 15000;
+
+/* ---------- 日本の学年（4月1日区切り・早生まれ考慮） ---------- */
+type GradeTag =
+  | 'Nursery'
+  | 'K1'
+  | 'K2'
+  | 'E1'
+  | 'E2'
+  | 'E3'
+  | 'E4'
+  | 'E5'
+  | 'E6'
+  | 'JH1'
+  | 'JH2'
+  | 'JH3'
+  | 'H1'
+  | 'H2'
+  | 'H3'
+  | 'Adult';
+
+/** 現在の学年度: 4月1日以降は今年、1月1日〜3月31日は前年 */
+const schoolYearOf = (d: Date) => (d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1);
+
+/**
+ * 生年月日から日本式の学年マークを求める。
+ * 1月1日〜4月1日生まれ（早生まれ）は誕生年度を「誕生年 - 1」、4月2日〜12月31日は「誕生年」とし、
+ * 学齢差 = 現在の学年度 - 誕生年度 で判定する。
+ */
+function gradeTagFromDob(dob: string, today: Date = new Date()): GradeTag | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dob);
+  if (!m) return null;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const earlyBorn = mo < 4 || (mo === 4 && d === 1);
+  const birthSchoolYear = earlyBorn ? y - 1 : y;
+  const diff = schoolYearOf(today) - birthSchoolYear;
+  if (diff <= 4) return 'Nursery';
+  if (diff === 5) return 'K1';
+  if (diff === 6) return 'K2';
+  if (diff <= 12) return `E${diff - 6}` as GradeTag;
+  if (diff <= 15) return `JH${diff - 12}` as GradeTag;
+  if (diff <= 18) return `H${diff - 15}` as GradeTag;
+  return 'Adult';
+}
+
+const gradeColor = (g: GradeTag) =>
+  g === 'Nursery' || g === 'K1' || g === 'K2'
+    ? 'bg-amber-50 text-amber-800 ring-amber-300'
+    : g.startsWith('E')
+      ? 'bg-emerald-50 text-emerald-800 ring-emerald-300'
+      : g.startsWith('JH')
+        ? 'bg-sky-50 text-sky-800 ring-sky-300'
+        : g.startsWith('H')
+          ? 'bg-violet-50 text-violet-800 ring-violet-300'
+          : 'bg-slate-100 text-slate-700 ring-slate-300';
+
+/** 表示用: "Yamada Taro [E3]" */
+const nameWithGrade = (st: Pick<Student, 'name' | 'dob'>) => {
+  const g = gradeTagFromDob(st.dob);
+  return g ? `${st.name} [${g}]` : st.name;
+};
 
 const STD_SLOTS: StdSlot[] = [
   { no: 1, start: '08:00', end: '08:50' },
@@ -422,14 +496,16 @@ const isEnrolledOn = (st: Student, date: string) =>
   st.mode === 'face' && !!st.startDate && !!st.endDate && st.startDate <= date && date <= st.endDate;
 
 const DEFAULT_SUBJECTS: Subject[] = [
-  { id: 'speaking', name: bi('Speaking', 'スピーキング') },
-  { id: 'listening', name: bi('Listening', 'リスニング') },
-  { id: 'reading', name: bi('Reading', 'リーディング') },
-  { id: 'writing', name: bi('Writing', 'ライティング') },
-  { id: 'vocabulary', name: bi('Vocabulary', '語彙') },
-  { id: 'grammar', name: bi('Grammar', '文法') },
-  { id: 'pronunciation', name: bi('Pronunciation', '発音') },
-  { id: 'business', name: bi('Business English', 'ビジネス英語') },
+  { id: 'speaking', name: bi('1on1 Speaking', '1on1 スピーキング'), classType: '1on1' },
+  { id: 'reading', name: bi('1on1 Reading', '1on1 リーディング'), classType: '1on1' },
+  { id: 'listening', name: bi('1on1 Listening', '1on1 リスニング'), classType: '1on1' },
+  { id: 'writing', name: bi('1on1 Writing', '1on1 ライティング'), classType: '1on1' },
+  { id: 'vocabulary', name: bi('1on1 Vocabulary', '1on1 語彙'), classType: '1on1' },
+  { id: 'grammar', name: bi('1on1 Grammar', '1on1 文法'), classType: '1on1' },
+  { id: 'pronunciation', name: bi('1on1 Pronunciation', '1on1 発音'), classType: '1on1' },
+  { id: 'business', name: bi('1on1 Business English', '1on1 ビジネス英語'), classType: '1on1' },
+  { id: 'discussion', name: bi('Group Discussion', 'グループ ディスカッション'), classType: 'group' },
+  { id: 'presentation', name: bi('Group Presentation', 'グループ プレゼンテーション'), classType: 'group' },
 ];
 
 /* ============================================================================
@@ -811,9 +887,9 @@ function initialStudents(): Student[] {
     {
       id: 'st_yamada',
       name: 'Yamada Taro',
-      ageGroup: 'Adult',
-      levelSystem: 'CEFR',
-      level: 'A2',
+      dob: '2017-07-10',
+      cefr: 'A1',
+      eiken: '5',
       mode: 'face',
       pastLessons: 5,
       startDate: dayRel(-10),
@@ -821,13 +897,13 @@ function initialStudents(): Student[] {
       startTime: '08:00',
       endTime: '17:00',
     },
-    { id: 'st_kato', name: 'Ken Kato', ageGroup: 'Adult', levelSystem: 'CEFR', level: 'B1', mode: 'online', pastLessons: 1 },
+    { id: 'st_kato', name: 'Ken Kato', dob: '1992-11-03', cefr: 'B1', eiken: '2', mode: 'online', pastLessons: 1 },
     {
       id: 'st_sato',
       name: 'Sato Hana',
-      ageGroup: 'Kids',
-      levelSystem: 'EIKEN',
-      level: '4級',
+      dob: '2020-09-01',
+      cefr: 'Pre-A1',
+      eiken: 'bronze',
       mode: 'face',
       pastLessons: 3,
       startDate: dayRel(-5),
@@ -835,13 +911,27 @@ function initialStudents(): Student[] {
       startTime: '13:00',
       endTime: '16:00',
     },
-    { id: 'st_suzuki', name: 'Suzuki Yui', ageGroup: 'Kids', levelSystem: 'EIKEN', level: '3級', mode: 'online', pastLessons: 0 },
+    {
+      id: 'st_kimura',
+      name: 'Kimura Ken',
+      dob: '2015-08-08',
+      cefr: 'A1',
+      eiken: '4',
+      mode: 'face',
+      pastLessons: 2,
+      startDate: dayRel(-3),
+      endDate: dayRel(40),
+      startTime: '09:00',
+      endTime: '12:00',
+    },
+    // 早生まれ（3月生まれ）の例: 誕生年 - 1 の学年度で判定
+    { id: 'st_suzuki', name: 'Suzuki Yui', dob: '2014-03-15', cefr: 'A2', eiken: '3', mode: 'online', pastLessons: 0 },
     {
       id: 'st_tanaka',
       name: 'Tanaka Ryo',
-      ageGroup: 'Adult',
-      levelSystem: 'CEFR',
-      level: 'B2',
+      dob: '2009-06-20',
+      cefr: 'B2',
+      eiken: 'pre1',
       mode: 'face',
       pastLessons: 8,
       startDate: dayRel(0),
@@ -869,6 +959,10 @@ function initialLessons(): Lesson[] {
     l('st_tanaka', 2, 'business', 'alyssa'),
     l('st_tanaka', 3, 'reading'),
     l('st_sato', 5, 'vocabulary', 'maria'),
+    // Group クラス: 同じ講師・同じコマ・同じ科目なら複数の生徒をアサインできる
+    l('st_yamada', 4, 'discussion', 'maria'),
+    l('st_tanaka', 4, 'discussion', 'maria'),
+    l('st_kimura', 4, 'discussion', 'maria'),
   ];
 }
 
@@ -972,12 +1066,24 @@ interface AppCtx {
   finishVisit: (taskId: string, receipt: Omit<Evidence, 'id' | 'at'>) => void;
   addStudent: (s: Omit<Student, 'id'>) => void;
   removeStudent: (id: string) => void;
+  updateStudent: (id: string, patch: { name: string; dob: string; cefr: string; eiken: string }) => void;
   /** 対面授業のアサイン。講師が同じ日・同じコマで他の生徒に入っている場合は false（拒否） */
   setLesson: (date: string, studentId: string, slotNo: number, patch: { subjectId?: string | null; teacherId?: string | null }) => boolean;
   /** その日・そのコマで講師が他の生徒を担当中なら、その生徒名 */
-  busyWith: (date: string, slotNo: number, teacherId: string, exceptStudentId?: string) => string | null;
+  /**
+   * その日・そのコマで講師を割り当てられるか。
+   * free = 空き / join = 同じ Group 科目に合流できる / busy = 他の生徒を担当中（1on1 または別科目）
+   */
+  teacherCheck: (
+    date: string,
+    slotNo: number,
+    teacherId: string,
+    studentId: string,
+    subjectId?: string,
+  ) => { status: 'free' | 'join' | 'busy'; others: Lesson[] };
   subjectName: (id?: string) => string;
-  addSubject: (name: string) => boolean;
+  subjectOf: (id?: string) => Subject | undefined;
+  addSubject: (name: string, classType: ClassType) => boolean;
   removeSubject: (id: string) => void;
   addBooking: (b: Omit<OnlineBooking, 'id'>) => void;
   removeBooking: (id: string) => void;
@@ -1354,6 +1460,11 @@ export default function CebuSyncApp() {
     setStudents((ss) => [...ss, { ...s, id: uid('st') }]);
     toast(bi(`🎓 Student registered: ${s.name}`, `🎓 学生を登録しました: ${s.name}`), 'ok');
   };
+  const updateStudent = (id: string, patch: { name: string; dob: string; cefr: string; eiken: string }) => {
+    setStudents((ss) => ss.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+    const g = gradeTagFromDob(patch.dob);
+    toast(bi(`Saved ${patch.name}${g ? ` [${g}]` : ''}`, `${patch.name}${g ? ` [${g}]` : ''} を保存しました`), 'ok');
+  };
   const removeStudent = (id: string) => {
     setStudents((ss) => ss.filter((s) => s.id !== id));
     setLessons((ls) => ls.filter((l) => l.studentId !== id));
@@ -1365,28 +1476,42 @@ export default function CebuSyncApp() {
     const sb = subjects.find((x) => x.id === id);
     return sb ? T(sb.name) : '';
   };
-  const busyWith = (date: string, slotNo: number, teacherId: string, exceptStudentId?: string) => {
-    const hit = lessons.find((l) => l.date === date && l.slotNo === slotNo && l.teacherId === teacherId && l.studentId !== exceptStudentId);
-    return hit ? studentName(hit.studentId) : null;
+  const subjectOf = (id?: string) => subjects.find((x) => x.id === id);
+  const teacherCheck = (date: string, slotNo: number, teacherId: string, studentId: string, subjectId?: string) => {
+    const others = lessons.filter((l) => l.date === date && l.slotNo === slotNo && l.teacherId === teacherId && l.studentId !== studentId);
+    if (others.length === 0) return { status: 'free' as const, others };
+    // Group 科目で、相手も全員「同じ Group 科目」なら合流OK。それ以外（1on1・別科目・科目未設定）はブロック
+    const sb = subjectOf(subjectId);
+    if (sb?.classType === 'group' && others.every((o) => o.subjectId === sb.id)) return { status: 'join' as const, others };
+    return { status: 'busy' as const, others };
   };
 
   const setLesson = (date: string, studentId: string, slotNo: number, patch: { subjectId?: string | null; teacherId?: string | null }) => {
     const slot = slotOf(slotNo);
-    if (patch.teacherId) {
-      const other = busyWith(date, slotNo, patch.teacherId, studentId);
-      if (other) {
-        const who = staffName(patch.teacherId);
+    const cur = lessons.find((l) => l.date === date && l.studentId === studentId && l.slotNo === slotNo);
+    // 変更後の講師・科目の組み合わせで重複判定（科目だけ変えた場合も対象）
+    const nextTeacher = patch.teacherId !== undefined ? patch.teacherId ?? undefined : cur?.teacherId;
+    const nextSubject = patch.subjectId !== undefined ? patch.subjectId ?? undefined : cur?.subjectId;
+    if (nextTeacher) {
+      const chk = teacherCheck(date, slotNo, nextTeacher, studentId, nextSubject);
+      if (chk.status === 'busy') {
+        const who = staffName(nextTeacher);
+        const o = chk.others[0];
+        const oSub = subjectOf(o.subjectId);
+        const what =
+          oSub?.classType === 'group'
+            ? { en: `the group class ${tx('en', oSub.name)}`, ja: `グループクラス「${tx('ja', oSub.name)}」` }
+            : { en: studentName(o.studentId), ja: studentName(o.studentId) };
         toast(
           bi(
-            `⛔ ${who} is already teaching ${other} in slot ${slotNo} (${slot?.start}) on ${date}. Choose another teacher.`,
-            `⛔ ${who} は ${date} の Slot ${slotNo}（${slot?.start}）で既に ${other} を担当しています。別の講師を選んでください。`,
+            `⛔ ${who} is already teaching ${what.en} in slot ${slotNo} (${slot?.start}) on ${date}. A teacher can only join another student in the same group subject.`,
+            `⛔ ${who} は ${date} の Slot ${slotNo}（${slot?.start}）で既に ${what.ja} を担当しています。同じ Group 科目のときだけ複数の生徒を担当できます。`,
           ),
           'danger',
         );
         return false;
       }
     }
-    const cur = lessons.find((l) => l.date === date && l.studentId === studentId && l.slotNo === slotNo);
     const next: Lesson = { ...(cur ?? { id: uid('ls'), date, studentId, slotNo }) };
     if (patch.subjectId !== undefined) next.subjectId = patch.subjectId ?? undefined;
     const teacherChanged = patch.teacherId !== undefined && (patch.teacherId ?? undefined) !== cur?.teacherId;
@@ -1411,15 +1536,18 @@ export default function CebuSyncApp() {
     return true;
   };
 
-  const addSubject = (name: string) => {
+  const addSubject = (name: string, classType: ClassType) => {
     const n = name.trim();
     if (!n) return false;
     if (subjects.some((x) => [tx('en', x.name), tx('ja', x.name)].some((v) => v.toLowerCase() === n.toLowerCase()))) {
       toast(bi(`"${n}" already exists`, `「${n}」は既にあります`), 'warn');
       return false;
     }
-    setSubjects((list) => [...list, { id: uid('sub'), name: n, custom: true }]);
-    toast(bi(`Subject added: ${n}`, `科目を追加しました: ${n}`), 'ok');
+    setSubjects((list) => [...list, { id: uid('sub'), name: n, classType, custom: true }]);
+    toast(
+      bi(`Subject added: ${n} (${classType === 'group' ? 'Group' : '1-on-1'})`, `科目を追加しました: ${n}（${classType === 'group' ? 'Group' : '1-on-1'}）`),
+      'ok',
+    );
     return true;
   };
   const removeSubject = (id: string) => {
@@ -1566,9 +1694,11 @@ export default function CebuSyncApp() {
     finishVisit,
     addStudent,
     removeStudent,
+    updateStudent,
     setLesson,
-    busyWith,
+    teacherCheck,
     subjectName,
+    subjectOf,
     addSubject,
     removeSubject,
     addBooking,
@@ -1907,6 +2037,97 @@ function AssigneePicker({
   );
 }
 
+/** 学年マーク（生年月日から自動判定） */
+function GradeBadge({ dob }: { dob: string }) {
+  const { L } = useApp();
+  const g = gradeTagFromDob(dob);
+  if (!g) return null;
+  return (
+    <span
+      title={L('Japanese school grade (April 1 cutoff)', '日本の学年（4月1日区切り）')}
+      className={cx('inline-flex items-center text-xs font-bold px-1.5 py-0.5 rounded-md ring-1 whitespace-nowrap leading-tight', gradeColor(g))}
+    >
+      {g}
+    </span>
+  );
+}
+
+/** 科目のクラス種別バッジ [1on1] / [Group] */
+function ClassTypeBadge({ type }: { type?: ClassType }) {
+  if (!type) return null;
+  return type === 'group' ? (
+    <span className="inline-flex items-center text-xs font-bold px-1.5 py-0.5 rounded-md ring-1 whitespace-nowrap leading-tight bg-orange-50 text-orange-700 ring-orange-300">
+      Group
+    </span>
+  ) : (
+    <span className="inline-flex items-center text-xs font-bold px-1.5 py-0.5 rounded-md ring-1 whitespace-nowrap leading-tight bg-teal-50 text-teal-700 ring-teal-300">
+      1on1
+    </span>
+  );
+}
+
+/** CEFR と英検を並べて表示 */
+function LevelBadges({ cefr, eiken }: { cefr: string; eiken: string }) {
+  const { L, lang } = useApp();
+  return (
+    <span className="inline-flex flex-wrap gap-1">
+      <Badge className={cefr ? 'bg-sky-50 text-sky-700 ring-sky-200' : 'bg-slate-50 text-slate-400 ring-slate-200'}>CEFR {cefr || '—'}</Badge>
+      <Badge className={eiken ? 'bg-rose-50 text-rose-700 ring-rose-200' : 'bg-slate-50 text-slate-400 ring-slate-200'}>
+        {L('EIKEN', '英検')} {eikenName(lang, eiken) || '—'}
+      </Badge>
+    </span>
+  );
+}
+
+/** CEFR・英検の選択欄（登録フォームと一覧の編集で共用） */
+function LevelSelects({
+  cefr,
+  eiken,
+  onCefr,
+  onEiken,
+  idPrefix,
+  compact,
+}: {
+  cefr: string;
+  eiken: string;
+  onCefr: (v: string) => void;
+  onEiken: (v: string) => void;
+  idPrefix: string;
+  compact?: boolean;
+}) {
+  const { L, T } = useApp();
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <div>
+        <label className={labelCls} htmlFor={`${idPrefix}-cefr`}>
+          CEFR
+        </label>
+        <select id={`${idPrefix}-cefr`} className={cx(inputCls, compact && 'py-1')} value={cefr} onChange={(e) => onCefr(e.target.value)}>
+          <option value="">{L('— Not set —', '— 未設定 —')}</option>
+          {CEFR_LEVELS.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className={labelCls} htmlFor={`${idPrefix}-eiken`}>
+          {L('EIKEN', '英検')}
+        </label>
+        <select id={`${idPrefix}-eiken`} className={cx(inputCls, compact && 'py-1')} value={eiken} onChange={(e) => onEiken(e.target.value)}>
+          <option value="">{L('— Not set —', '— 未設定 —')}</option>
+          {EIKEN_LEVELS.map((e) => (
+            <option key={e.id} value={e.id}>
+              {T(e.label)}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+}
+
 function EmptyState({ children }: { children: React.ReactNode }) {
   return <div className="text-sm text-slate-400 text-center py-6">{children}</div>;
 }
@@ -2216,11 +2437,20 @@ function AttendanceCard() {
 }
 
 function MyTodayCard() {
-  const { me, tasks, lessons, bookings, students, now, lessonNo, subjectName, setTab, toggleMilestone, L, T, lang } = useApp();
+  const { me, tasks, lessons, bookings, students, now, lessonNo, subjectName, subjectOf, setTab, toggleMilestone, L, T, lang } = useApp();
   const today = todayStr();
   const myTasks = tasks.filter((t) => t.assigneeId === me.id && t.status !== 'done');
   const msItems = myTasks.flatMap((t) => t.milestones.filter((m) => !m.done && m.due <= today).map((m) => ({ t, m })));
-  const mySlots = lessons.filter((l) => l.date === today && l.teacherId === me.id).sort((a, b) => a.slotNo - b.slotNo);
+  // Group 科目は「同じコマ × 同じ科目」を1件にまとめ、参加生徒を並べる
+  const mySlots = Object.values(
+    lessons
+      .filter((l) => l.date === today && l.teacherId === me.id)
+      .reduce<Record<string, Lesson[]>>((acc, l) => {
+        const key = subjectOf(l.subjectId)?.classType === 'group' ? `${l.slotNo}|${l.subjectId}` : l.id;
+        (acc[key] ??= []).push(l);
+        return acc;
+      }, {}),
+  ).sort((a, b) => a[0].slotNo - b[0].slotNo);
   const myOnline = bookings
     .filter((b) => b.teacherId === me.id && b.datetime.startsWith(today))
     .sort((a, b) => a.datetime.localeCompare(b.datetime));
@@ -2233,10 +2463,14 @@ function MyTodayCard() {
       right={<span className="text-xs text-slate-400">{L(`${total} items`, `${total}件`)}</span>}
     >
       <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
-        {mySlots.map((l) => {
+        {mySlots.map((group) => {
+          const l = group[0];
           const slot = slotOf(l.slotNo);
-          const isNew = !!l.assignedAt && now - l.assignedAt < 60000;
+          const isNew = group.some((x) => !!x.assignedAt && now - x.assignedAt < 60000);
+          const sb = subjectOf(l.subjectId);
           const subj = subjectName(l.subjectId);
+          const names = group.map((x) => students.find((y) => y.id === x.studentId)).filter((x): x is Student => !!x);
+          const isGroup = sb?.classType === 'group';
           return (
             <div
               key={l.id}
@@ -2248,10 +2482,26 @@ function MyTodayCard() {
                   🎓 {L(`In-person · Slot ${l.slotNo}`, `対面授業 Slot ${l.slotNo}`)} {slot?.start}–{slot?.end}
                   {isNew && <span className="ml-2 text-xs bg-pink-600 text-white rounded px-1.5 py-0.5">{L('NEW · auto-added', 'NEW 自動追加')}</span>}
                 </div>
-                <div className="text-xs text-slate-600 truncate">
-                  {students.find((x) => x.id === l.studentId)?.name ?? '—'}
-                  {subj ? ` · ${subj}` : ` · ${L('subject not set', '科目未設定')}`}
-                </div>
+                {isGroup ? (
+                  <div className="text-xs text-slate-700 flex flex-wrap items-center gap-1">
+                    <ClassTypeBadge type="group" />
+                    <span className="font-semibold">{subj}</span>
+                    <span>
+                      {L(
+                        `(${names.length} Student${names.length === 1 ? '' : 's'}: ${names.map((x) => x.name).join(', ')})`,
+                        `（${names.length}名: ${names.map((x) => x.name).join('、')}）`,
+                      )}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="text-xs text-slate-600 flex flex-wrap items-center gap-1">
+                    {sb && <ClassTypeBadge type={sb.classType} />}
+                    <span className="truncate">
+                      {names[0] ? nameWithGrade(names[0]) : '—'}
+                      {subj ? ` · ${subj}` : ` · ${L('subject not set', '科目未設定')}`}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -3572,11 +3822,11 @@ function StudentsTab() {
 }
 
 function StudentForm() {
-  const { addStudent, L, lang } = useApp();
+  const { addStudent, L } = useApp();
   const [name, setName] = useState('');
-  const [ageGroup, setAgeGroup] = useState<'Kids' | 'Adult'>('Adult');
-  const [levelSystem, setLevelSystem] = useState<Student['levelSystem']>('CEFR');
-  const [level, setLevel] = useState('A1');
+  const [dob, setDob] = useState('');
+  const [cefr, setCefr] = useState('');
+  const [eiken, setEiken] = useState('');
   const [mode, setMode] = useState<'face' | 'online'>('face');
   const [past, setPast] = useState('0');
   const [startDate, setStartDate] = useState(todayStr());
@@ -3586,6 +3836,12 @@ function StudentForm() {
   const [error, setError] = useState('');
 
   const slots = slotsInWindow(startTime, endTime);
+  const grade = gradeTagFromDob(dob);
+  const dobError = !dob
+    ? L('Enter the date of birth', '生年月日を入力してください')
+    : dob > todayStr()
+      ? L('Date of birth can’t be in the future', '生年月日に未来の日付は指定できません')
+      : '';
   const faceError =
     mode !== 'face'
       ? ''
@@ -3601,17 +3857,21 @@ function StudentForm() {
 
   const submit = () => {
     if (!name.trim()) return setError(L('Enter the student’s name', '氏名を入力してください'));
+    if (dobError) return setError(dobError);
     if (faceError) return setError(faceError);
     addStudent({
       name: name.trim(),
-      ageGroup,
-      levelSystem,
-      level,
+      dob,
+      cefr,
+      eiken,
       mode,
       pastLessons: Math.max(0, Number(past) || 0),
       ...(mode === 'face' ? { startDate, endDate, startTime, endTime } : {}),
     });
     setName('');
+    setDob('');
+    setCefr('');
+    setEiken('');
     setPast('0');
     setError('');
   };
@@ -3633,8 +3893,19 @@ function StudentForm() {
         </div>
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <label className={labelCls}>{L('Age group', '年齢区分')}</label>
-            <Segmented value={ageGroup} onChange={setAgeGroup} options={[['Kids', '🧒 Kids'], ['Adult', '🧑 Adult']]} />
+            <label className={labelCls} htmlFor="cebu-st-dob">
+              {L('Date of Birth *', '生年月日 *')}
+            </label>
+            <input id="cebu-st-dob" type="date" max={todayStr()} className={inputCls} value={dob} onChange={(e) => setDob(e.target.value)} />
+            <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500 min-h-6" aria-live="polite">
+              {grade ? (
+                <>
+                  {L('Grade:', '学年:')} <GradeBadge dob={dob} />
+                </>
+              ) : (
+                L('Grade is set automatically (Japan, Apr 1 cutoff)', '学年は自動判定（日本式・4月1日区切り）')
+              )}
+            </div>
           </div>
           <div>
             <label className={labelCls}>{L('Lesson type', '受講タイプ')}</label>
@@ -3696,33 +3967,10 @@ function StudentForm() {
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className={labelCls}>{L('Level scale', 'レベル指標')}</label>
-            <Segmented
-              value={levelSystem}
-              onChange={(v) => {
-                setLevelSystem(v);
-                setLevel(v === 'CEFR' ? 'A1' : '5級');
-              }}
-              options={[
-                ['CEFR', 'CEFR'],
-                ['EIKEN', L('EIKEN', '英検')],
-              ]}
-            />
-          </div>
-          <div>
-            <label className={labelCls} htmlFor="cebu-st-level">
-              {L('English level', '英語レベル')}
-            </label>
-            <select id="cebu-st-level" className={inputCls} value={level} onChange={(e) => setLevel(e.target.value)}>
-              {(levelSystem === 'CEFR' ? CEFR_LEVELS : EIKEN_LEVELS).map((l) => (
-                <option key={l} value={l}>
-                  {levelName(lang, levelSystem, l)}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className="rounded-xl ring-1 ring-slate-200 p-3 space-y-2">
+          <div className="text-xs font-bold text-slate-600">{L('English level (CEFR and EIKEN)', '英語レベル（CEFR・英検の両方）')}</div>
+          <LevelSelects cefr={cefr} eiken={eiken} onCefr={setCefr} onEiken={setEiken} idPrefix="cebu-st" />
+          <LevelBadges cefr={cefr} eiken={eiken} />
         </div>
         <div>
           <label className={labelCls} htmlFor="cebu-st-past">
@@ -3731,7 +3979,7 @@ function StudentForm() {
           <input id="cebu-st-past" type="number" min={0} className={inputCls} value={past} onChange={(e) => setPast(e.target.value)} />
         </div>
         {error && <div className="text-sm text-red-600">{error}</div>}
-        <button disabled={!name.trim() || !!faceError} onClick={submit} className={cx(btn.primary, 'w-full')}>
+        <button disabled={!name.trim() || !!dobError || !!faceError} onClick={submit} className={cx(btn.primary, 'w-full')}>
           <Plus className="w-4 h-4" /> {L('Register', '登録する')}
         </button>
       </div>
@@ -3760,7 +4008,7 @@ function Segmented<T extends string>({ value, onChange, options }: { value: T; o
 }
 
 function StudentList() {
-  const { students, removeStudent, bookings, role, L, lang } = useApp();
+  const { students, L } = useApp();
   const [filter, setFilter] = useState<'all' | 'face' | 'online'>('all');
   const list = students.filter((s) => filter === 'all' || s.mode === filter);
   return (
@@ -3785,8 +4033,8 @@ function StudentList() {
           <thead>
             <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
               <th className="py-2 pr-3">{L('Name', '氏名')}</th>
-              <th className="py-2 pr-3">{L('Age group', '年齢区分')}</th>
-              <th className="py-2 pr-3">{L('Level', 'レベル')}</th>
+              <th className="py-2 pr-3">{L('Date of birth / Grade', '生年月日・学年')}</th>
+              <th className="py-2 pr-3">{L('Level (CEFR / EIKEN)', 'レベル（CEFR / 英検）')}</th>
               <th className="py-2 pr-3">{L('Type', '受講タイプ')}</th>
               <th className="py-2 pr-3">{L('In-person period / hours', '対面 受講期間・時間帯')}</th>
               <th className="py-2 pr-3">{L('Lessons', '受講回数')}</th>
@@ -3794,43 +4042,9 @@ function StudentList() {
             </tr>
           </thead>
           <tbody>
-            {list.map((s) => {
-              const done = s.pastLessons + bookings.filter((b) => b.studentId === s.id && b.datetime < `${todayStr()}T00:00`).length;
-              return (
-                <tr key={s.id} className="border-b border-slate-100">
-                  <td className="py-2 pr-3 font-medium">{s.name}</td>
-                  <td className="py-2 pr-3">
-                    <Badge className={s.ageGroup === 'Kids' ? 'bg-yellow-50 text-yellow-800 ring-yellow-200' : 'bg-slate-50 text-slate-700 ring-slate-200'}>
-                      {s.ageGroup === 'Kids' ? '🧒 Kids' : '🧑 Adult'}
-                    </Badge>
-                  </td>
-                  <td className="py-2 pr-3">
-                    <Badge className="bg-sky-50 text-sky-700 ring-sky-200">{levelText(lang, s)}</Badge>
-                  </td>
-                  <td className="py-2 pr-3">{s.mode === 'face' ? L('🏫 In person', '🏫 対面') : L('💻 Online', '💻 オンライン')}</td>
-                  <td className="py-2 pr-3 text-xs text-slate-600 whitespace-nowrap">
-                    {s.mode === 'face' && s.startDate && s.endDate ? (
-                      <>
-                        {fmtDate(lang, s.startDate)} 〜 {fmtDate(lang, s.endDate)}
-                        <span className="block font-mono">
-                          {s.startTime}–{s.endTime} · {L(`${slotsInWindow(s.startTime, s.endTime).length} slots/day`, `1日${slotsInWindow(s.startTime, s.endTime).length}コマ`)}
-                        </span>
-                      </>
-                    ) : (
-                      '—'
-                    )}
-                  </td>
-                  <td className="py-2 pr-3 font-mono">{L(`${done}`, `${done}回`)}</td>
-                  <td className="py-2 text-right">
-                    {role === 'staff' && (
-                      <button onClick={() => removeStudent(s.id)} className="text-slate-300 hover:text-red-600" aria-label={L('Remove', '削除')}>
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
+            {list.map((st) => (
+              <StudentRow key={st.id} st={st} />
+            ))}
           </tbody>
         </table>
         {list.length === 0 && <EmptyState>{L('No students', '学生がいません')}</EmptyState>}
@@ -3839,8 +4053,111 @@ function StudentList() {
   );
 }
 
+function StudentRow({ st: s }: { st: Student }) {
+  const { removeStudent, updateStudent, bookings, role, L, lang } = useApp();
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(s.name);
+  const [dob, setDob] = useState(s.dob);
+  const [cefr, setCefr] = useState(s.cefr);
+  const [eiken, setEiken] = useState(s.eiken);
+  const done = s.pastLessons + bookings.filter((b) => b.studentId === s.id && b.datetime < `${todayStr()}T00:00`).length;
+  const valid = !!name.trim() && !!dob && dob <= todayStr();
+  return (
+    <tr className="border-b border-slate-100 align-top">
+      <td className="py-2 pr-3 font-medium">
+        {editing ? (
+          <input aria-label={L('Name', '氏名')} className={cx(inputCls, 'py-1 w-40')} value={name} onChange={(e) => setName(e.target.value)} />
+        ) : (
+          <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+            {s.name} <GradeBadge dob={s.dob} />
+          </span>
+        )}
+      </td>
+      <td className="py-2 pr-3 text-xs text-slate-600 whitespace-nowrap">
+        {editing ? (
+          <div className="space-y-1">
+            <input
+              type="date"
+              max={todayStr()}
+              aria-label={L('Date of birth', '生年月日')}
+              className={cx(inputCls, 'py-1 w-40')}
+              value={dob}
+              onChange={(e) => setDob(e.target.value)}
+            />
+            <GradeBadge dob={dob} />
+          </div>
+        ) : (
+          <span className="font-mono">{s.dob}</span>
+        )}
+      </td>
+      <td className="py-2 pr-3">
+        {editing ? (
+          <div className="w-64">
+            <LevelSelects cefr={cefr} eiken={eiken} onCefr={setCefr} onEiken={setEiken} idPrefix={`cebu-edit-${s.id}`} compact />
+          </div>
+        ) : (
+          <LevelBadges cefr={s.cefr} eiken={s.eiken} />
+        )}
+      </td>
+      <td className="py-2 pr-3 whitespace-nowrap">{s.mode === 'face' ? L('🏫 In person', '🏫 対面') : L('💻 Online', '💻 オンライン')}</td>
+      <td className="py-2 pr-3 text-xs text-slate-600 whitespace-nowrap">
+        {s.mode === 'face' && s.startDate && s.endDate ? (
+          <>
+            {fmtDate(lang, s.startDate)} 〜 {fmtDate(lang, s.endDate)}
+            <span className="block font-mono">
+              {s.startTime}–{s.endTime} · {L(`${slotsInWindow(s.startTime, s.endTime).length} slots/day`, `1日${slotsInWindow(s.startTime, s.endTime).length}コマ`)}
+            </span>
+          </>
+        ) : (
+          '—'
+        )}
+      </td>
+      <td className="py-2 pr-3 font-mono">{L(`${done}`, `${done}回`)}</td>
+      <td className="py-2 text-right whitespace-nowrap">
+        {editing ? (
+          <span className="inline-flex gap-1">
+            <button
+              disabled={!valid}
+              onClick={() => {
+                updateStudent(s.id, { name: name.trim(), dob, cefr, eiken });
+                setEditing(false);
+              }}
+              className={cx(btn.green, 'py-1 px-2')}
+            >
+              <Check className="w-4 h-4" /> {L('Save', '保存')}
+            </button>
+            <button
+              onClick={() => {
+                setName(s.name);
+                setDob(s.dob);
+                setCefr(s.cefr);
+                setEiken(s.eiken);
+                setEditing(false);
+              }}
+              className={cx(btn.ghost, 'py-1 px-2')}
+            >
+              {L('Cancel', 'キャンセル')}
+            </button>
+          </span>
+        ) : (
+          <span className="inline-flex gap-2">
+            <button onClick={() => setEditing(true)} className="text-slate-300 hover:text-sky-600" aria-label={L(`Edit ${s.name}`, `${s.name} を編集`)}>
+              <Pencil className="w-4 h-4" />
+            </button>
+            {role === 'staff' && (
+              <button onClick={() => removeStudent(s.id)} className="text-slate-300 hover:text-red-600" aria-label={L('Remove', '削除')}>
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+          </span>
+        )}
+      </td>
+    </tr>
+  );
+}
+
 function Timetable() {
-  const { students, lessons, subjects, setLesson, busyWith, subjectName, activeStaff, staffName, staffOf, roleNames, now, L, T, lang } = useApp();
+  const { students, lessons, subjects, setLesson, teacherCheck, subjectName, subjectOf, activeStaff, staffName, staffOf, roleNames, now, L, T, lang } = useApp();
   const faceStudents = students.filter((s) => s.mode === 'face');
   const [date, setDate] = useState(todayStr());
   const [studentId, setStudentId] = useState(faceStudents[0]?.id ?? '');
@@ -3878,14 +4195,14 @@ function Timetable() {
             {faceStudents.map((s) => (
               <option key={s.id} value={s.id}>
                 {isEnrolledOn(s, date) ? '' : '— '}
-                {s.name}（{s.startTime}–{s.endTime}）{isEnrolledOn(s, date) ? '' : L(' · not enrolled on this date', ' · この日は受講期間外')}
+                {nameWithGrade(s)}（{s.startTime}–{s.endTime}）{isEnrolledOn(s, date) ? '' : L(' · not enrolled on this date', ' · この日は受講期間外')}
               </option>
             ))}
           </select>
         </div>
         {st && st.mode === 'face' && (
-          <div className="text-xs text-slate-500 pb-2">
-            {L('Period', '受講期間')}: {st.startDate ? fmtDate(lang, st.startDate) : '—'} 〜 {st.endDate ? fmtDate(lang, st.endDate) : '—'} · {levelText(lang, st)}
+          <div className="text-xs text-slate-500 pb-2 inline-flex flex-wrap items-center gap-1.5">
+            <span className="font-semibold text-slate-700">{st.name}</span> <GradeBadge dob={st.dob} /> · {L('Period', '受講期間')}: {st.startDate ? fmtDate(lang, st.startDate) : '—'} 〜 {st.endDate ? fmtDate(lang, st.endDate) : '—'} · <LevelBadges cefr={st.cefr} eiken={st.eiken} />
           </div>
         )}
       </div>
@@ -3935,10 +4252,22 @@ function Timetable() {
                         <option value="">{L('— Subject —', '— 科目を選択 —')}</option>
                         {subjects.map((sb) => (
                           <option key={sb.id} value={sb.id}>
-                            {T(sb.name)}
+                            {T(sb.name)} [{sb.classType === 'group' ? 'Group' : '1on1'}]
                           </option>
                         ))}
                       </select>
+                      {lesson?.subjectId && (
+                        <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
+                          <ClassTypeBadge type={subjectOf(lesson.subjectId)?.classType} />
+                          {subjectOf(lesson.subjectId)?.classType === 'group' &&
+                            (() => {
+                              const n = lessons.filter(
+                                (x) => x.date === date && x.slotNo === slot.no && x.subjectId === lesson.subjectId && x.teacherId && x.teacherId === lesson.teacherId,
+                              ).length;
+                              return n > 1 ? <span>{L(`${n} students in this group`, `このグループに ${n}名`)}</span> : null;
+                            })()}
+                        </div>
+                      )}
                     </td>
                     <td className="py-2 pr-3 min-w-0">
                       <select
@@ -3957,12 +4286,25 @@ function Timetable() {
                           </option>
                         )}
                         {teachers.map((t) => {
-                          const other = busyWith(date, slot.no, t.id, st.id);
+                          const chk = teacherCheck(date, slot.no, t.id, st.id, lesson?.subjectId);
+                          const o = chk.others[0];
+                          const oSub = o ? subjectOf(o.subjectId) : undefined;
+                          const busyLabel = !o
+                            ? ''
+                            : oSub?.classType === 'group'
+                              ? L(` (Busy · ${tx('en', oSub.name)} ×${chk.others.length})`, `（Busy · ${tx('ja', oSub.name)} ${chk.others.length}名）`)
+                              : L(` (Busy · with ${students.find((y) => y.id === o.studentId)?.name ?? '—'})`, `（Busy · ${students.find((y) => y.id === o.studentId)?.name ?? '—'} を担当中）`);
                           return (
-                            <option key={t.id} value={t.id} disabled={!!other}>
+                            <option key={t.id} value={t.id} disabled={chk.status === 'busy'}>
                               {hasAnyRole(t, LESSON_ROLES) ? '★ ' : ''}
                               {t.name}
-                              {other ? L(` (Busy · with ${other})`, `（Busy · ${other} を担当中）`) : t.roles.length ? ` — ${roleNames(t.roles)}` : ''}
+                              {chk.status === 'busy'
+                                ? busyLabel
+                                : chk.status === 'join'
+                                  ? L(` (Join group · ${chk.others.length} student(s))`, `（グループに合流 · ${chk.others.length}名）`)
+                                  : t.roles.length
+                                    ? ` — ${roleNames(t.roles)}`
+                                    : ''}
                             </option>
                           );
                         })}
@@ -4006,16 +4348,21 @@ function Timetable() {
                   <tr key={tid} className="border-t border-slate-100">
                     <td className="py-1 pr-3 font-semibold whitespace-nowrap">{staffName(tid)}</td>
                     {STD_SLOTS.map((x) => {
-                      const l = dayLessons.find((y) => y.teacherId === tid && y.slotNo === x.no);
-                      const stName = l ? students.find((y) => y.id === l.studentId)?.name : '';
+                      const ls = dayLessons.filter((y) => y.teacherId === tid && y.slotNo === x.no);
+                      const l = ls[0];
+                      const names = ls.map((y) => students.find((z) => z.id === y.studentId)?.name ?? '—');
+                      const isGroup = ls.length > 1 || subjectOf(l?.subjectId)?.classType === 'group';
                       return (
                         <td key={x.no} className="py-1 px-1 text-center">
                           {l ? (
                             <span
-                              title={`${stName}${l.subjectId ? ` · ${subjectName(l.subjectId)}` : ''}`}
-                              className="inline-block rounded bg-pink-100 text-pink-800 px-1.5 py-0.5 whitespace-nowrap"
+                              title={`${names.join(', ')}${l.subjectId ? ` · ${subjectName(l.subjectId)}` : ''}`}
+                              className={cx(
+                                'inline-block rounded px-1.5 py-0.5 whitespace-nowrap',
+                                isGroup ? 'bg-orange-100 text-orange-800' : 'bg-pink-100 text-pink-800',
+                              )}
                             >
-                              {stName?.split(' ')[0]}
+                              {isGroup ? `Group ×${ls.length}` : names[0]?.split(' ')[0]}
                             </span>
                           ) : (
                             <span className="text-slate-200">·</span>
@@ -4057,7 +4404,7 @@ function OnlineLessons() {
             <select className={inputCls} value={studentId} onChange={(e) => setStudentId(e.target.value)}>
               {students.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.mode === 'online' ? '💻' : '🏫'} {s.name}（{levelText(lang, s)}）
+                  {s.mode === 'online' ? '💻' : '🏫'} {nameWithGrade(s)}（{levelText(lang, s)}）
                 </option>
               ))}
             </select>
@@ -4721,12 +5068,13 @@ function StaffEditor({ member }: { member: Staff }) {
 function SubjectMasterCard() {
   const { subjects, lessons, addSubject, removeSubject, L, T } = useApp();
   const [name, setName] = useState('');
+  const [classType, setClassType] = useState<ClassType>('1on1');
   return (
     <Card title={L('📚 Subject Master', '📚 科目マスター')} icon={<GraduationCap className="w-5 h-5 text-pink-600" />}>
       <p className="text-xs text-slate-500 mb-3">
         {L(
-          'Anyone (Staff, GM, HQO) can add or remove subjects. They appear right away in the in-person timetable.',
-          'スタッフ・GM・HQO の誰でも科目を追加・削除できます。追加した科目はすぐに対面授業タイムテーブルで選べます。',
+          'Anyone (Staff, GM, HQO) can add or remove subjects. 1on1 = one student per teacher per slot. Group = a teacher can take several students in the same slot, as long as they all take the same group subject.',
+          'スタッフ・GM・HQO の誰でも科目を追加・削除できます。1on1 = 1コマにつき講師1人で生徒1人。Group = 同じコマ・同じ Group 科目なら、講師1人で複数の生徒を担当できます。',
         )}
       </p>
       <div className="flex flex-wrap gap-2">
@@ -4734,6 +5082,7 @@ function SubjectMasterCard() {
           const used = lessons.filter((l) => l.subjectId === sb.id).length;
           return (
             <span key={sb.id} className="inline-flex items-center gap-1.5 text-sm rounded-lg ring-1 ring-pink-200 bg-pink-50 text-pink-800 pl-2.5 pr-1.5 py-1">
+              <ClassTypeBadge type={sb.classType} />
               {T(sb.name)}
               <span className="text-xs text-pink-500">{L(`${used} lesson(s)`, `${used}コマ`)}</span>
               <button
@@ -4748,15 +5097,25 @@ function SubjectMasterCard() {
         })}
       </div>
       <form
-        className="mt-4 flex gap-2 max-w-md"
+        className="mt-4 flex flex-wrap gap-2 max-w-2xl"
         onSubmit={(e) => {
           e.preventDefault();
-          if (addSubject(name)) setName('');
+          if (addSubject(name, classType)) setName('');
         }}
       >
+        <div className="w-48">
+          <Segmented
+            value={classType}
+            onChange={setClassType}
+            options={[
+              ['1on1', L('1-on-1', '1-on-1（マンツーマン）')],
+              ['group', 'Group'],
+            ]}
+          />
+        </div>
         <input
           id="cebu-new-subject"
-          className={cx(inputCls, 'py-1.5')}
+          className={cx(inputCls, 'py-1.5 flex-1 min-w-0 w-auto')}
           placeholder={L('New subject, e.g. TOEIC Prep', '新しい科目（例: TOEIC対策）')}
           value={name}
           onChange={(e) => setName(e.target.value)}
