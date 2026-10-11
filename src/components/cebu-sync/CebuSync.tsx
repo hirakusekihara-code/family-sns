@@ -40,6 +40,7 @@ import {
   Radio,
   RotateCcw,
   Send,
+  Settings,
   Shield,
   Trash2,
   User,
@@ -58,7 +59,7 @@ type Bi = { en: string; ja: string };
 type Text = string | Bi;
 
 type Role = 'staff' | 'gm' | 'hqo';
-type TabKey = 'dashboard' | 'tasks' | 'transit' | 'students' | 'dtr';
+type TabKey = 'dashboard' | 'tasks' | 'transit' | 'students' | 'dtr' | 'settings';
 type AttStatus = 'off' | 'working' | 'break' | 'transit' | 'visiting' | 'out';
 type Category = 'docs' | 'visit' | 'facility' | 'accounting' | 'lesson' | 'other';
 type ApprovalType = 'HQO' | 'GM';
@@ -73,8 +74,20 @@ type DTRStatus = 'present' | 'late' | 'absent' | 'notyet' | AttStatus;
 interface Staff {
   id: string;
   name: string;
-  title: Bi;
+  title: Text;
   avatar: string;
+  /** 兼任している ROLE（JobRole.id）。複数可・他スタッフと重複可 */
+  roles: string[];
+  /** false = 無効化（ロールバー・担当者候補などから外れる。過去データの表示には残る） */
+  active: boolean;
+}
+
+/** 社内の担当 ROLE（例: HR & Admin）。アプリの表示ロール（Staff / GM / HQO）とは別物 */
+interface JobRole {
+  id: string;
+  label: Text;
+  color: string;
+  custom?: boolean;
 }
 
 interface GeoFix {
@@ -237,13 +250,50 @@ const both = (t: Text) => (typeof t === 'string' ? t : `${t.en} ${t.ja}`);
  * Constants & mock master data
  * ==========================================================================*/
 
-const STAFF: Staff[] = [
-  { id: 'alyssa', name: 'Alyssa', title: bi('Admin / Visa', '総務・ビザ'), avatar: '👩🏻' },
-  { id: 'mark', name: 'Mark', title: bi('Accounting / BIR', '経理・BIR'), avatar: '👨🏽' },
-  { id: 'daisy', name: 'Daisy', title: bi('Petty Cash / Office', '小口現金・庶務'), avatar: '👩🏽' },
-  { id: 'john', name: 'John', title: bi('Banking / Facilities', '銀行・設備'), avatar: '👨🏻' },
-  { id: 'maria', name: 'Maria', title: bi('Teacher / Lessons', '講師・レッスン'), avatar: '👩🏾' },
+const ROLE_COLORS = [
+  'bg-indigo-50 text-indigo-700 ring-indigo-200',
+  'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  'bg-pink-50 text-pink-700 ring-pink-200',
+  'bg-orange-50 text-orange-700 ring-orange-200',
+  'bg-teal-50 text-teal-700 ring-teal-200',
+  'bg-violet-50 text-violet-700 ring-violet-200',
+  'bg-amber-50 text-amber-800 ring-amber-200',
+  'bg-sky-50 text-sky-700 ring-sky-200',
+  'bg-rose-50 text-rose-700 ring-rose-200',
+  'bg-lime-50 text-lime-800 ring-lime-200',
 ];
+
+const DEFAULT_JOB_ROLES: JobRole[] = [
+  { id: 'hr', label: bi('HR & Admin', '人事・総務'), color: ROLE_COLORS[0] },
+  { id: 'accounting', label: bi('Accounting & BIR', '経理・BIR'), color: ROLE_COLORS[1] },
+  { id: 'academic', label: bi('Academic & Lessons', '教務・レッスン'), color: ROLE_COLORS[2] },
+  { id: 'visits', label: bi('External Visits', '対外訪問'), color: ROLE_COLORS[3] },
+  { id: 'facilities', label: bi('Facilities & IT', '設備・IT'), color: ROLE_COLORS[4] },
+  { id: 'teachers', label: bi('Teacher Management', '講師管理'), color: ROLE_COLORS[5] },
+];
+
+/** タスクの大分類ごとに「向いている ROLE」（担当者選びで ★ おすすめ表示） */
+const CATEGORY_ROLES: Record<string, string[]> = {
+  docs: ['hr'],
+  visit: ['visits'],
+  facility: ['facilities'],
+  accounting: ['accounting'],
+  lesson: ['academic', 'teachers'],
+  other: [],
+};
+/** レッスン担当（時間割・オンライン予約で ★ おすすめ表示） */
+const LESSON_ROLES = ['academic', 'teachers'];
+
+const INITIAL_STAFF: Staff[] = [
+  { id: 'alyssa', name: 'Alyssa', title: bi('Admin / Visa', '総務・ビザ'), avatar: '👩🏻', roles: ['hr', 'visits', 'teachers'], active: true },
+  { id: 'mark', name: 'Mark', title: bi('Accounting / BIR', '経理・BIR'), avatar: '👨🏽', roles: ['accounting', 'visits'], active: true },
+  { id: 'daisy', name: 'Daisy', title: bi('Petty Cash / Office', '小口現金・庶務'), avatar: '👩🏽', roles: ['accounting', 'hr'], active: true },
+  { id: 'john', name: 'John', title: bi('Banking / Facilities', '銀行・設備'), avatar: '👨🏻', roles: ['facilities', 'accounting', 'visits'], active: true },
+  { id: 'maria', name: 'Maria', title: bi('Teacher / Lessons', '講師・レッスン'), avatar: '👩🏾', roles: ['academic', 'teachers'], active: true },
+];
+
+const AVATARS = ['👩🏻', '👨🏻', '👩🏽', '👨🏽', '👩🏾', '👨🏾', '🧑🏻', '🧑🏽'];
+const hasAnyRole = (s: Staff, roles: string[]) => roles.some((r) => s.roles.includes(r));
 
 const OFFICE = { lat: 10.3302, lng: 123.9058, name: 'Cebu Office (IT Park)' };
 const GEOFENCE_M = 50;
@@ -354,6 +404,8 @@ const atTime = (date: string, hhmm: string) => {
 };
 const minsAgo = (m: number) => Date.now() - m * 60000;
 const nowTs = () => Date.now();
+/** 目的地から半径25m以内のランダムなチェックイン位置（擬似GPS） */
+const pinNear = (p: { lat: number; lng: number }) => offsetPoint(p.lat, p.lng, Math.random() * 25, Math.random() * Math.PI * 2);
 
 const fmtHM = (ts?: number) =>
   ts ? new Date(ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '--:--';
@@ -370,8 +422,6 @@ const fmtPhp = (n: number) => `₱${n.toLocaleString('en-US')}`;
 const tzClock = (tz: string, now: number) =>
   new Date(now).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: tz });
 
-const staffName = (id?: string | null) => STAFF.find((s) => s.id === id)?.name ?? '—';
-const staffOf = (id: string) => STAFF.find((s) => s.id === id) ?? STAFF[0];
 const destOf = (id?: string) => DESTINATIONS.find((d) => d.id === id);
 const trayName = (type: ApprovalType): Bi =>
   type === 'HQO' ? bi('🏦 HQO Payment Approval', '🏦 HQO出金承認') : bi('👔 GM Approval', '👔 GM統括承認');
@@ -747,7 +797,7 @@ function buildHistory(): DTRRow[] {
     const d = addDays(today, -i);
     if (d.getDay() === 0 || d.getDay() === 6) continue;
     const date = ymd(d);
-    for (const s of STAFF) {
+    for (const s of INITIAL_STAFF) {
       const r = seeded(s.id + date);
       if (r() < 0.04) {
         rows.push({ date, staffId: s.id, breakMin: 0, outingMin: 0, workMin: 0, status: 'absent' });
@@ -785,6 +835,19 @@ interface AppCtx {
   role: Role;
   me: Staff;
   actorLabel: string;
+  /** 全スタッフ（無効化済みを含む） */
+  staff: Staff[];
+  /** 有効なスタッフのみ */
+  activeStaff: Staff[];
+  jobRoles: JobRole[];
+  staffName: (id?: string | null) => string;
+  staffOf: (id: string) => Staff;
+  roleNames: (ids: string[]) => string;
+  saveStaff: (id: string, patch: { name: string; roles: string[] }) => void;
+  addStaff: (p: { name: string; avatar: string; roles: string[] }) => void;
+  setStaffActive: (id: string, active: boolean) => void;
+  addJobRole: (label: string) => boolean;
+  removeJobRole: (id: string) => void;
   now: number;
   attendance: Record<string, Attendance>;
   tasks: Task[];
@@ -845,6 +908,8 @@ export default function CebuSyncApp() {
   const [role, setRoleState] = useState<Role>('staff');
   const [lang, setLang] = useState<Lang>(defaultLang('staff'));
   const [meId, setMeId] = useState('alyssa');
+  const [staff, setStaff] = useState<Staff[]>(INITIAL_STAFF);
+  const [jobRoles, setJobRoles] = useState<JobRole[]>(DEFAULT_JOB_ROLES);
   const [tab, setTab] = useState<TabKey>('dashboard');
   const [now, setNow] = useState(() => Date.now());
   const [attendance, setAttendance] = useState<Record<string, Attendance>>(initialAttendance);
@@ -916,8 +981,19 @@ export default function CebuSyncApp() {
   const setRole = (r: Role) => {
     setRoleState(r);
     setLang(defaultLang(r));
+    // スタッフ設定タブは GM / HQO 専用
+    if (r === 'staff' && tab === 'settings') setTab('dashboard');
   };
 
+  const activeStaff = staff.filter((s) => s.active);
+  const staffName = (id?: string | null) => staff.find((s) => s.id === id)?.name ?? '—';
+  const staffOf = (id: string) => staff.find((s) => s.id === id) ?? activeStaff[0] ?? staff[0];
+  const roleNames = (ids: string[]) =>
+    ids
+      .map((id) => jobRoles.find((r) => r.id === id))
+      .filter((r): r is JobRole => !!r)
+      .map((r) => T(r.label))
+      .join(', ');
   const me = staffOf(meId);
   const actorLabel = role === 'staff' ? me.name : role === 'gm' ? 'GM' : 'HQO';
 
@@ -1144,7 +1220,7 @@ export default function CebuSyncApp() {
     const t = tasks.find((x) => x.id === taskId);
     const d = destOf(t?.destinationId);
     if (!t || !d) return;
-    const pin = offsetPoint(d.lat, d.lng, Math.random() * 25, Math.random() * Math.PI * 2);
+    const pin = pinNear(d);
     patchTask(taskId, (x) => ({ ...x, transitPhase: 'arrived' }));
     setVisits((vs) => vs.map((v) => (v.taskId === taskId && !v.arriveAt ? { ...v, arriveAt: Date.now(), pin } : v)));
     patchAtt(meId, (x) => ({
@@ -1152,7 +1228,7 @@ export default function CebuSyncApp() {
       status: 'visiting',
       lastFix: { ...pin, accuracy: 9, distance: Math.round(haversine(pin, OFFICE)), at: Date.now() },
     }));
-    const hm = fmtHM(Date.now());
+    const hm = fmtHM(nowTs());
     pushFeed(bi(`📍 ${me.name} checked in at ${d.name} (${hm})`, `📍 ${me.name} が ${d.name} に到着チェックイン（${hm}）`), 'info');
     toast(bi(`📍 Checked in — ${d.short} ${hm}`, `📍 到着チェックイン — ${d.short} ${hm}`), 'ok');
   };
@@ -1232,6 +1308,73 @@ export default function CebuSyncApp() {
   };
   const removeBooking = (id: string) => setBookings((bs) => bs.filter((b) => b.id !== id));
 
+  /* ---------- Staff management (GM / HQO) ---------- */
+  const saveStaff = (id: string, patch: { name: string; roles: string[] }) => {
+    const before = staff.find((s) => s.id === id);
+    setStaff((list) => list.map((s) => (s.id === id ? { ...s, name: patch.name, roles: patch.roles } : s)));
+    pushFeed(
+      bi(`⚙️ ${actorLabel} updated ${patch.name}'s profile & roles`, `⚙️ ${actorLabel} が ${patch.name} のプロフィール・ROLE を更新しました`),
+      'info',
+    );
+    toast(
+      before && before.name !== patch.name
+        ? bi(`Saved — ${before.name} is now ${patch.name}`, `保存しました — ${before.name} → ${patch.name}`)
+        : bi(`Saved ${patch.name}`, `${patch.name} を保存しました`),
+      'ok',
+    );
+  };
+
+  const addStaff = (p: { name: string; avatar: string; roles: string[] }) => {
+    const id = uid('staff');
+    setStaff((list) => [...list, { id, name: p.name, avatar: p.avatar, roles: p.roles, title: '', active: true }]);
+    setAttendance((prev) => ({ ...prev, [id]: { status: 'off', breaks: [] } }));
+    pushFeed(bi(`👋 ${actorLabel} added a new staff member: ${p.name}`, `👋 ${actorLabel} が新しいスタッフ ${p.name} を追加しました`), 'ok');
+    toast(bi(`Added ${p.name}`, `${p.name} を追加しました`), 'ok');
+  };
+
+  const setStaffActive = (id: string, active: boolean) => {
+    const target = staff.find((s) => s.id === id);
+    if (!target) return;
+    if (!active && activeStaff.length <= 1) {
+      toast(bi('At least one active staff member is required', '有効なスタッフが最低1名必要です'), 'warn');
+      return;
+    }
+    setStaff((list) => list.map((s) => (s.id === id ? { ...s, active } : s)));
+    // 表示中のスタッフを無効化したら、別の有効スタッフに切り替える
+    if (!active && id === meId) {
+      const next = activeStaff.find((s) => s.id !== id);
+      if (next) setMeId(next.id);
+    }
+    pushFeed(
+      active
+        ? bi(`✅ ${actorLabel} reactivated ${target.name}`, `✅ ${actorLabel} が ${target.name} を再有効化しました`)
+        : bi(`⛔ ${actorLabel} deactivated ${target.name}`, `⛔ ${actorLabel} が ${target.name} を無効化しました`),
+      active ? 'ok' : 'warn',
+    );
+    toast(active ? bi(`${target.name} reactivated`, `${target.name} を再有効化しました`) : bi(`${target.name} deactivated`, `${target.name} を無効化しました`), active ? 'ok' : 'warn');
+  };
+
+  const addJobRole = (label: string) => {
+    const name = label.trim();
+    if (!name) return false;
+    const dup = jobRoles.some((r) => [tx('en', r.label), tx('ja', r.label)].some((x) => x.toLowerCase() === name.toLowerCase()));
+    if (dup) {
+      toast(bi(`"${name}" already exists`, `「${name}」は既にあります`), 'warn');
+      return false;
+    }
+    setJobRoles((list) => [...list, { id: uid('role'), label: name, color: ROLE_COLORS[list.length % ROLE_COLORS.length], custom: true }]);
+    toast(bi(`Role added: ${name}`, `ROLE を追加しました: ${name}`), 'ok');
+    return true;
+  };
+
+  const removeJobRole = (id: string) => {
+    const r = jobRoles.find((x) => x.id === id);
+    if (!r?.custom) return;
+    setJobRoles((list) => list.filter((x) => x.id !== id));
+    setStaff((list) => list.map((s) => ({ ...s, roles: s.roles.filter((x) => x !== id) })));
+    toast(bi(`Role removed: ${tx('en', r.label)}`, `ROLE を削除しました: ${tx('ja', r.label)}`), 'info');
+  };
+
   const ctx: AppCtx = {
     lang,
     L,
@@ -1239,6 +1382,17 @@ export default function CebuSyncApp() {
     role,
     me,
     actorLabel,
+    staff,
+    activeStaff,
+    jobRoles,
+    staffName,
+    staffOf,
+    roleNames,
+    saveStaff,
+    addStaff,
+    setStaffActive,
+    addJobRole,
+    removeJobRole,
     now,
     attendance,
     tasks,
@@ -1295,6 +1449,8 @@ export default function CebuSyncApp() {
     { key: 'transit', label: L('Transit & Visits', '外出・訪問'), icon: Car },
     { key: 'students', label: L('Students & Lessons', '生徒・レッスン'), icon: GraduationCap },
     { key: 'dtr', label: L('Work Log (DTR)', '勤怠ログ (DTR)'), icon: BarChart3 },
+    // GM / HQO のみ
+    ...(role !== 'staff' ? [{ key: 'settings' as TabKey, label: L('Staff Settings', 'スタッフ設定'), icon: Settings }] : []),
   ];
 
   return (
@@ -1346,8 +1502,11 @@ export default function CebuSyncApp() {
                   role === 'staff' ? 'bg-white text-slate-900 shadow' : 'text-slate-300 hover:bg-slate-700',
                 )}
               >
-                <button className="pl-3 pr-1 py-1.5 font-medium" onClick={() => setRole('staff')}>
-                  👤 {me.name} <span className="opacity-60">(Staff)</span>
+                <button className="pl-3 pr-1 py-1 font-medium text-left" onClick={() => setRole('staff')}>
+                  <span className="block leading-tight">
+                    👤 {me.name} <span className="opacity-60">(Staff)</span>
+                  </span>
+                  <RoleBadges ids={me.roles} compact />
                 </button>
                 <select
                   aria-label={L('Switch staff', 'スタッフ切替')}
@@ -1358,9 +1517,10 @@ export default function CebuSyncApp() {
                   }}
                   className="bg-transparent text-xs pr-1 py-1.5 outline-none cursor-pointer w-5"
                 >
-                  {STAFF.map((s) => (
+                  {activeStaff.map((s) => (
                     <option key={s.id} value={s.id} className="text-slate-900">
                       {s.name}
+                      {s.roles.length ? ` — ${roleNames(s.roles)}` : ''}
                     </option>
                   ))}
                 </select>
@@ -1399,6 +1559,7 @@ export default function CebuSyncApp() {
           {tab === 'transit' && <TransitTab key={`${role}-${meId}`} />}
           {tab === 'students' && <StudentsTab />}
           {tab === 'dtr' && <DTRTab key={`${role}-${meId}`} />}
+          {tab === 'settings' && role !== 'staff' && <StaffSettingsTab />}
         </main>
 
         <footer className="text-center text-xs text-slate-400 pb-8">
@@ -1523,6 +1684,87 @@ function ApprovalBadge({ approval }: { approval: Approval | null }) {
   return <Badge className="bg-red-50 text-red-700 ring-red-300">↩️ {L('Returned', '差戻し')} · {tray}</Badge>;
 }
 
+/** ROLE（担当）バッジ。compact = 2件 + 残り件数のみ。highlight に含まれる ROLE は緑枠で強調 */
+function RoleBadges({ ids, compact, highlight }: { ids: string[]; compact?: boolean; highlight?: string[] }) {
+  const { jobRoles, T, L } = useApp();
+  const list = ids.map((id) => jobRoles.find((r) => r.id === id)).filter((r): r is JobRole => !!r);
+  if (list.length === 0) return compact ? null : <span className="text-xs text-slate-400">{L('No role', 'ROLE 未設定')}</span>;
+  const shown = compact ? list.slice(0, 2) : list;
+  return (
+    <span className="inline-flex flex-wrap gap-1 align-middle">
+      {shown.map((r) => (
+        <span
+          key={r.id}
+          className={cx(
+            'text-xs font-semibold px-1.5 py-0.5 rounded-md ring-1 whitespace-nowrap leading-tight',
+            r.color,
+            highlight?.includes(r.id) && 'ring-2 ring-emerald-500',
+          )}
+        >
+          {T(r.label)}
+        </span>
+      ))}
+      {compact && list.length > 2 && (
+        <span className="text-xs font-semibold px-1.5 py-0.5 rounded-md bg-slate-200 text-slate-700 leading-tight">+{list.length - 2}</span>
+      )}
+    </span>
+  );
+}
+
+/** 推奨 ROLE を持つスタッフを先頭に並べる */
+const sortByRoles = (list: Staff[], roles: string[]) => [...list].sort((a, b) => Number(hasAnyRole(b, roles)) - Number(hasAnyRole(a, roles)));
+
+/** 担当者選択（ROLE バッジ付き・推奨 ROLE を持つ人に ★） */
+function AssigneePicker({
+  label,
+  value,
+  onChange,
+  staff,
+  recommended,
+  hint,
+}: {
+  label: string;
+  value: string;
+  onChange: (id: string) => void;
+  staff: Staff[];
+  recommended: string[];
+  hint?: string;
+}) {
+  const { L } = useApp();
+  return (
+    <div>
+      <label className={labelCls}>{label}</label>
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2" role="radiogroup" aria-label={label}>
+        {sortByRoles(staff, recommended).map((s) => {
+          const rec = hasAnyRole(s, recommended);
+          const selected = value === s.id;
+          return (
+            <button
+              key={s.id}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              onClick={() => onChange(s.id)}
+              className={cx(
+                'text-left rounded-xl p-2 ring-1 transition space-y-1',
+                selected ? 'ring-2 ring-sky-500 bg-sky-50' : 'ring-slate-200 hover:bg-slate-50',
+              )}
+            >
+              <div className="flex items-center gap-1.5 text-sm font-semibold">
+                <span>{s.avatar}</span>
+                <span className="truncate">{s.name}</span>
+                {rec && <span className="ml-auto text-xs font-semibold text-emerald-700 whitespace-nowrap">★ {L('Suggested', 'おすすめ')}</span>}
+              </div>
+              <RoleBadges ids={s.roles} highlight={recommended} />
+            </button>
+          );
+        })}
+      </div>
+      {hint && <p className="mt-1 text-xs text-slate-500">{hint}</p>}
+    </div>
+  );
+}
+
 function EmptyState({ children }: { children: React.ReactNode }) {
   return <div className="text-sm text-slate-400 text-center py-6">{children}</div>;
 }
@@ -1570,7 +1812,7 @@ const mockPhotoName = (prefix: string) => {
  * ==========================================================================*/
 
 function useAlerts() {
-  const { tasks, attendance, role, me, now } = useApp();
+  const { tasks, attendance, role, me, now, activeStaff, staffName } = useApp();
   return useMemo(() => {
     const items: Array<{ id: string; tone: Tone; text: Bi }> = [];
     const mine = (t: Task) => role !== 'staff' || t.assigneeId === me.id;
@@ -1610,25 +1852,25 @@ function useAlerts() {
     if (role !== 'staff') {
       const d = new Date(now);
       if (d.getHours() * 60 + d.getMinutes() > 8 * 60 + 15) {
-        for (const s of STAFF)
-          if (attendance[s.id].status === 'off')
+        for (const s of activeStaff)
+          if (attendance[s.id]?.status === 'off')
             items.push({ id: `late_${s.id}`, tone: 'warn', text: bi(`⏰ ${s.name} has not clocked in (past 8:15)`, `⏰ ${s.name} が未出勤（8:15超過）`) });
       }
-      for (const s of STAFF) {
-        const b = attendance[s.id].breaks.find((x) => !x.end);
+      for (const s of activeStaff) {
+        const b = attendance[s.id]?.breaks.find((x) => !x.end);
         if (b && now - b.start > 75 * 60000)
           items.push({ id: `brk_${s.id}`, tone: 'warn', text: bi(`☕ ${s.name}’s break is over 75 min`, `☕ ${s.name} の休憩が75分を超過`) });
       }
     }
     const order: Record<Tone, number> = { danger: 0, warn: 1, info: 2, ok: 3 };
     return items.sort((a, b) => order[a.tone] - order[b.tone]);
-  }, [tasks, attendance, role, me.id, now]);
+  }, [tasks, attendance, role, me.id, now, activeStaff, staffName]);
 }
 
 function DashboardTab() {
-  const { role, attendance, tasks, L } = useApp();
+  const { role, attendance, tasks, activeStaff, L } = useApp();
   const alerts = useAlerts();
-  const working = STAFF.filter((s) => ['working', 'transit', 'visiting', 'break'].includes(attendance[s.id].status)).length;
+  const working = activeStaff.filter((s) => ['working', 'transit', 'visiting', 'break'].includes(attendance[s.id]?.status)).length;
   const delayed = tasks.filter(isTaskDelayed).length;
   const blockers = tasks.filter((t) => t.blocker && t.status !== 'done').length;
   const pending = tasks.filter(
@@ -1646,7 +1888,7 @@ function DashboardTab() {
       ) : (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <Kpi label={L('Present', '出勤中')} value={`${working} / ${STAFF.length}`} tone="green" icon={<Users className="w-5 h-5" />} />
+            <Kpi label={L('Present', '出勤中')} value={`${working} / ${activeStaff.length}`} tone="green" icon={<Users className="w-5 h-5" />} />
             <Kpi label={L('Delayed tasks', '遅延タスク')} value={delayed} tone="red" icon={<AlertTriangle className="w-5 h-5" />} />
             <Kpi label={L('Active blockers', 'Blocker 申告中')} value={blockers} tone="orange" icon={<Radio className="w-5 h-5" />} />
             <Kpi
@@ -1689,7 +1931,7 @@ function Kpi({ label, value, tone, icon }: { label: string; value: React.ReactNo
 }
 
 function AttendanceCard() {
-  const { me, attendance, now, clockIn, clockOut, breakStart, breakEnd, gpsBusy, gpsMode, setGpsMode, setTab, L, T } = useApp();
+  const { me, attendance, now, clockIn, clockOut, breakStart, breakEnd, gpsBusy, gpsMode, setGpsMode, setTab, L } = useApp();
   const a = attendance[me.id];
   const tracking = a.status === 'working' || a.status === 'transit' || a.status === 'visiting';
   const breakMin = a.breaks.reduce((s, b) => s + ((b.end ?? now) - b.start) / 60000, 0);
@@ -1709,11 +1951,11 @@ function AttendanceCard() {
         <div className="text-4xl">{me.avatar}</div>
         <div>
           <div className="font-bold text-lg leading-tight">{me.name}</div>
-          <div className="text-xs text-slate-500">{T(me.title)}</div>
+          <RoleBadges ids={me.roles} />
         </div>
         <div className="ml-auto text-right">
           <div className="text-xs text-slate-400">{L('Worked', '実働')}</div>
-          <div className="font-mono font-bold text-xl">{fmtDuration(workMin)}</div>
+          <div className="font-mono font-bold text-xl whitespace-nowrap">{fmtDuration(workMin)}</div>
         </div>
       </div>
 
@@ -1982,12 +2224,12 @@ function FeedCard() {
 }
 
 function TeamBoard() {
-  const { attendance, visits, tasks, now, L, T } = useApp();
+  const { attendance, visits, tasks, now, activeStaff, L } = useApp();
   return (
     <Card title={L('Live Attendance (Cebu Office)', 'リアルタイム勤怠ステータス（Cebu Office）')} icon={<Users className="w-5 h-5 text-slate-600" />}>
       <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3">
-        {STAFF.map((s) => {
-          const a = attendance[s.id];
+        {activeStaff.map((s) => {
+          const a = attendance[s.id] ?? { status: 'off' as AttStatus, breaks: [] };
           const v = visits.find((x) => x.staffId === s.id && !x.returnAt);
           const d = destOf(v?.destinationId);
           const tracking = a.status === 'working' || a.status === 'transit' || a.status === 'visiting';
@@ -2001,8 +2243,10 @@ function TeamBoard() {
                 <span className="text-2xl">{s.avatar}</span>
                 <div className="min-w-0">
                   <div className="font-semibold text-sm">{s.name}</div>
-                  <div className="text-xs text-slate-400 truncate">{T(s.title)}</div>
                 </div>
+              </div>
+              <div className="mt-1.5">
+                <RoleBadges ids={s.roles} />
               </div>
               <div className="mt-2">
                 <StatusPill status={a.status} />
@@ -2148,10 +2392,12 @@ function TaskCard({ task: t, expanded, onToggle }: { task: Task; expanded: boole
     reopenTask,
     resubmit,
     setTab,
+    staffOf,
     L,
     T,
     lang,
   } = useApp();
+  const assignee = staffOf(t.assigneeId);
   const delayed = isTaskDelayed(t);
   const done = t.milestones.filter((m) => m.done).length;
   const pct = t.milestones.length ? Math.round((done / t.milestones.length) * 100) : 0;
@@ -2187,8 +2433,10 @@ function TaskCard({ task: t, expanded, onToggle }: { task: Task; expanded: boole
           </div>
           <div className="font-semibold text-slate-800">{T(t.title)}</div>
           <div className="mt-1 text-xs text-slate-500 flex flex-wrap gap-x-3">
-            <span>
-              <User className="inline w-3 h-3 -mt-0.5" /> {staffName(t.assigneeId)}
+            <span className="inline-flex items-center gap-1.5">
+              <User className="inline w-3 h-3" /> {assignee.name}
+              {!assignee.active && <span className="text-red-600">({L('inactive', '無効')})</span>}
+              <RoleBadges ids={assignee.roles} compact />
             </span>
             <span className={cx(t.dueDate < todayStr() && t.status !== 'done' && 'text-red-600 font-semibold')}>
               <Calendar className="inline w-3 h-3 -mt-0.5" /> {L('Due', '期日')} {fmtDate(lang, t.dueDate)}
@@ -2426,7 +2674,7 @@ function TaskCard({ task: t, expanded, onToggle }: { task: Task; expanded: boole
 }
 
 function ApprovalTray({ type, items }: { type: ApprovalType; items: Task[] }) {
-  const { role, L, T } = useApp();
+  const { role, staffName, L, T } = useApp();
   const canAct = (type === 'GM' && role === 'gm') || (type === 'HQO' && role === 'hqo');
   const pending = items.filter((t) => t.approval?.status === 'pending');
   const decided = items.filter((t) => t.approval?.status !== 'pending');
@@ -2505,7 +2753,7 @@ function ApprovalTray({ type, items }: { type: ApprovalType; items: Task[] }) {
 }
 
 function ApprovalCard({ task: t, canAct }: { task: Task; canAct: boolean }) {
-  const { decide, L, T, lang } = useApp();
+  const { decide, staffName, staffOf, L, T, lang } = useApp();
   const [mode, setMode] = useState<null | 'revision' | 'rejected'>(null);
   const [note, setNote] = useState('');
   const delayed = isTaskDelayed(t);
@@ -2524,6 +2772,7 @@ function ApprovalCard({ task: t, canAct }: { task: Task; canAct: boolean }) {
         <div>
           {L('Routed because', '振り分け理由')}: {t.approval ? T(t.approval.reason) : ''}
         </div>
+        <RoleBadges ids={staffOf(t.assigneeId).roles} />
         {t.requiresOuting && (
           <div>
             🚗 {L('Destination', '外出先')}: {destOf(t.destinationId)?.name ?? L('Not set', '未設定')}
@@ -2588,11 +2837,11 @@ function ApprovalCard({ task: t, canAct }: { task: Task; canAct: boolean }) {
 /* ---------- Add Task modal ---------- */
 
 function AddTaskModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (t: Task) => void }) {
-  const { role, me, L, T } = useApp();
+  const { role, me, activeStaff, jobRoles, L, T } = useApp();
   const [category, setCategory] = useState<Category>('docs');
   const [subCategory, setSubCategory] = useState(T(SUBCATEGORIES.docs[0]));
   const [title, setTitle] = useState('');
-  const [assigneeId, setAssigneeId] = useState(role === 'staff' ? me.id : 'alyssa');
+  const [assigneeId, setAssigneeId] = useState(role === 'staff' ? me.id : activeStaff[0]?.id ?? '');
   const [dueDate, setDueDate] = useState(dayRel(3));
   const [milestones, setMilestones] = useState<Array<{ id: string; label: string; due: string }>>([{ id: uid('m'), label: '', due: dayRel(1) }]);
   const [requiresOuting, setOuting] = useState(false);
@@ -2674,18 +2923,25 @@ function AddTaskModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (t
           />
         </div>
         <div>
-          <label className={labelCls}>{L('Assignee (one person)', '担当者（単一選択）')}</label>
-          <select className={inputCls} value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
-            {STAFF.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.avatar} {s.name} — {T(s.title)}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
           <label className={labelCls}>{L('Due date', '期日')}</label>
           <input type="date" className={inputCls} value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+        </div>
+        <div className="md:col-span-2">
+          <AssigneePicker
+            label={L('Assignee (one person)', '担当者（単一選択）')}
+            value={assigneeId}
+            onChange={setAssigneeId}
+            staff={activeStaff}
+            recommended={CATEGORY_ROLES[category] ?? []}
+            hint={
+              (CATEGORY_ROLES[category] ?? []).length
+                ? L(
+                    `★ = has the ${(CATEGORY_ROLES[category] ?? []).map((id) => T(jobRoles.find((r) => r.id === id)?.label ?? id)).join(' / ')} role, suited to "${T(CATEGORY_LABEL[category])}"`,
+                    `★ =「${T(CATEGORY_LABEL[category])}」に向いた ROLE（${(CATEGORY_ROLES[category] ?? []).map((id) => T(jobRoles.find((r) => r.id === id)?.label ?? id)).join(' / ')}）を持つスタッフ`,
+                  )
+                : undefined
+            }
+          />
         </div>
 
         <div className="md:col-span-2">
@@ -2801,7 +3057,7 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
  * ==========================================================================*/
 
 function TransitTab() {
-  const { role, me, tasks, attendance, visits, depart, arrive, finishVisit, now, L, T, lang } = useApp();
+  const { role, me, tasks, attendance, visits, depart, arrive, finishVisit, now, staffName, staffOf, L, T, lang } = useApp();
   const myOutings = tasks.filter((t) => t.assigneeId === me.id && t.requiresOuting && (t.status !== 'done' || t.transitPhase === 'done'));
   const active = myOutings.find((t) => t.transitPhase === 'transit' || t.transitPhase === 'arrived');
   const [selected, setSelected] = useState<string>(active?.id ?? myOutings.find((t) => t.status !== 'done')?.id ?? '');
@@ -3065,7 +3321,7 @@ function TransitTab() {
 }
 
 function MockMap() {
-  const { visits, now, L } = useApp();
+  const { visits, now, staffName, L } = useApp();
   const pts = [OFFICE, ...DESTINATIONS];
   const lats = pts.map((p) => p.lat);
   const lngs = pts.map((p) => p.lng);
@@ -3338,7 +3594,8 @@ function StudentList() {
 }
 
 function Timetable() {
-  const { slots, students, setSlotStaff, addSlotStudent, removeSlotStudent, now, L, lang } = useApp();
+  const { slots, students, setSlotStaff, addSlotStudent, removeSlotStudent, now, activeStaff, staffOf, roleNames, L, lang } = useApp();
+  const teachers = sortByRoles(activeStaff, LESSON_ROLES);
   const faceStudents = students.filter((s) => s.mode === 'face');
   const d = new Date(now);
   const cur = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -3348,7 +3605,10 @@ function Timetable() {
       icon={<Calendar className="w-5 h-5 text-pink-600" />}
       right={
         <span className="text-xs text-slate-400">
-          {L('Assign a teacher + students and it’s added to their Today’s Milestones', '担当スタッフ + 生徒を紐付けると本日のマイルストーンに自動追加')}
+          {L(
+            'Assign a teacher + students and it’s added to their Today’s Milestones · ★ = Academic / Teacher role',
+            '担当スタッフ + 生徒を紐付けると本日のマイルストーンに自動追加 · ★ = 教務・講師管理 ROLE',
+          )}
         </span>
       }
     >
@@ -3373,12 +3633,19 @@ function Timetable() {
               <label className={labelCls}>{L('Teacher', '担当スタッフ')}</label>
               <select className={cx(inputCls, 'py-1.5')} value={s.staffId ?? ''} onChange={(e) => setSlotStaff(s.id, e.target.value || null)}>
                 <option value="">{L('— Unassigned —', '— 未割当 —')}</option>
-                {STAFF.map((st) => (
+                {teachers.map((st) => (
                   <option key={st.id} value={st.id}>
-                    {st.avatar} {st.name}
+                    {hasAnyRole(st, LESSON_ROLES) ? '★ ' : ''}
+                    {st.name}
+                    {st.roles.length ? ` — ${roleNames(st.roles)}` : ''}
                   </option>
                 ))}
               </select>
+              {s.staffId && (
+                <div className="mt-1">
+                  <RoleBadges ids={staffOf(s.staffId).roles} highlight={LESSON_ROLES} />
+                </div>
+              )}
               <label className={cx(labelCls, 'mt-2')}>{L('Students', '生徒')}</label>
               <div className="flex flex-wrap gap-1 mb-1.5 min-h-6">
                 {s.studentIds.map((id) => {
@@ -3417,11 +3684,12 @@ function Timetable() {
 }
 
 function OnlineLessons() {
-  const { students, bookings, addBooking, removeBooking, lessonNo, me, role, L, lang } = useApp();
+  const { students, bookings, addBooking, removeBooking, lessonNo, me, role, activeStaff, staffName, staffOf, roleNames, L, lang } = useApp();
+  const teachers = sortByRoles(activeStaff, LESSON_ROLES);
   const [studentId, setStudentId] = useState(students.find((s) => s.mode === 'online')?.id ?? students[0]?.id ?? '');
   const [datetime, setDatetime] = useState(`${dayRel(1)}T16:00`);
   const [teamsUrl, setTeamsUrl] = useState('');
-  const [teacherId, setTeacherId] = useState(role === 'staff' ? me.id : 'alyssa');
+  const [teacherId, setTeacherId] = useState(role === 'staff' ? me.id : teachers[0]?.id ?? '');
   const [mineOnly, setMineOnly] = useState(false);
 
   const st = students.find((s) => s.id === studentId);
@@ -3454,12 +3722,19 @@ function OnlineLessons() {
           <div>
             <label className={labelCls}>{L('Teacher', '担当講師')}</label>
             <select className={inputCls} value={teacherId} onChange={(e) => setTeacherId(e.target.value)}>
-              {STAFF.map((s) => (
+              {teachers.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.avatar} {s.name}
+                  {hasAnyRole(s, LESSON_ROLES) ? '★ ' : ''}
+                  {s.name}
+                  {s.roles.length ? ` — ${roleNames(s.roles)}` : ''}
                 </option>
               ))}
             </select>
+            {teacherId && (
+              <div className="mt-1">
+                <RoleBadges ids={staffOf(teacherId).roles} highlight={LESSON_ROLES} />
+              </div>
+            )}
           </div>
           {st && (
             <div className="rounded-lg bg-violet-50 ring-1 ring-violet-200 px-3 py-2 text-sm text-violet-800">
@@ -3559,15 +3834,15 @@ function OnlineLessons() {
  * ==========================================================================*/
 
 function DTRTab() {
-  const { role, me, history, attendance, visits, now, toast, L, T, lang } = useApp();
+  const { role, me, history, attendance, visits, now, toast, staff, activeStaff, staffName, L, T, lang } = useApp();
   const [period, setPeriod] = useState<Period>('week');
   const [staffFilter, setStaffFilter] = useState<string>(role === 'staff' ? me.id : 'all');
   const [csv, setCsv] = useState<string | null>(null);
 
   const today = todayStr();
   const statusText = (s: DTRStatus) => (s in DTR_STATUS_LABEL ? T(DTR_STATUS_LABEL[s as keyof typeof DTR_STATUS_LABEL]) : T(STATUS_META[s as AttStatus].label));
-  const liveRows: DTRRow[] = STAFF.map((s) => {
-    const a = attendance[s.id];
+  const liveRows: DTRRow[] = activeStaff.map((s) => {
+    const a = attendance[s.id] ?? { status: 'off' as AttStatus, breaks: [] };
     const breakMin = a.breaks.reduce((sum, b) => sum + ((b.end ?? now) - b.start) / 60000, 0);
     const outingMin = visits
       .filter((v) => v.staffId === s.id && ymd(new Date(v.departAt)) === today)
@@ -3600,9 +3875,9 @@ function DTRTab() {
   const rows = [...history, ...liveRows]
     .filter((r) => r.date >= from && r.date <= today)
     .filter((r) => staffFilter === 'all' || r.staffId === staffFilter)
-    .sort((a, b) => b.date.localeCompare(a.date) || STAFF.findIndex((s) => s.id === a.staffId) - STAFF.findIndex((s) => s.id === b.staffId));
+    .sort((a, b) => b.date.localeCompare(a.date) || staff.findIndex((s) => s.id === a.staffId) - staff.findIndex((s) => s.id === b.staffId));
 
-  const summary = STAFF.filter((s) => staffFilter === 'all' || s.id === staffFilter).map((s) => {
+  const summary = activeStaff.filter((s) => staffFilter === 'all' || s.id === staffFilter).map((s) => {
     const rs = rows.filter((r) => r.staffId === s.id);
     return {
       s,
@@ -3681,8 +3956,8 @@ function DTRTab() {
           <div>
             <label className={labelCls}>{L('Staff', 'スタッフ')}</label>
             <select className={cx(inputCls, 'py-1.5 w-44')} value={staffFilter} onChange={(e) => setStaffFilter(e.target.value)} disabled={role === 'staff'}>
-              {role !== 'staff' && <option value="all">{L('All (5)', '全員 (5名)')}</option>}
-              {STAFF.map((s) => (
+              {role !== 'staff' && <option value="all">{L(`All (${activeStaff.length})`, `全員 (${activeStaff.length}名)`)}</option>}
+              {activeStaff.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
                 </option>
@@ -3796,6 +4071,295 @@ function DTRTab() {
             </button>
           </div>
         </Modal>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================================
+ * Tab 6: Staff Settings (GM / HQO only)
+ * ==========================================================================*/
+
+function StaffSettingsTab() {
+  const { staff, activeStaff, jobRoles, addJobRole, removeJobRole, L, T } = useApp();
+  const [newRole, setNewRole] = useState('');
+  const inactive = staff.filter((s) => !s.active);
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-2xl p-4 text-white bg-gradient-to-r from-slate-800 to-slate-700 flex flex-wrap items-center gap-4">
+        <Settings className="w-6 h-6" />
+        <div>
+          <div className="font-bold">{L('Staff Settings', 'スタッフ設定')}</div>
+          <div className="text-xs opacity-80">
+            {L(
+              'GM / HQO only. Names and roles you save here update the top bar, dashboard, tasks and timetable immediately.',
+              'GM / HQO 専用。ここで保存した名前と ROLE は、上部バー・ダッシュボード・タスク・時間割に即座に反映されます。',
+            )}
+          </div>
+        </div>
+        <div className="ml-auto flex gap-6 text-right">
+          <div>
+            <div className="text-xs opacity-80">{L('Active', '有効')}</div>
+            <div className="text-2xl font-black">{activeStaff.length}</div>
+          </div>
+          <div>
+            <div className="text-xs opacity-80">{L('Inactive', '無効')}</div>
+            <div className="text-2xl font-black">{inactive.length}</div>
+          </div>
+          <div>
+            <div className="text-xs opacity-80">ROLE</div>
+            <div className="text-2xl font-black">{jobRoles.length}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid lg:grid-cols-3 gap-6">
+        <Card title={L('Role tags', 'ROLE タグ')} icon={<Shield className="w-5 h-5 text-indigo-600" />}>
+          <p className="text-xs text-slate-500 mb-3">
+            {L(
+              'One person can hold any number of roles, and several people can share the same role.',
+              '1人が何個でも ROLE を兼任でき、同じ ROLE を複数人で持つこともできます。',
+            )}
+          </p>
+          <div className="space-y-1.5">
+            {jobRoles.map((r) => {
+              const holders = activeStaff.filter((s) => s.roles.includes(r.id));
+              return (
+                <div key={r.id} className="flex items-center gap-2 text-sm">
+                  <span className={cx('text-xs font-semibold px-1.5 py-0.5 rounded-md ring-1 whitespace-nowrap', r.color)}>{T(r.label)}</span>
+                  <span className="text-xs text-slate-500 truncate">
+                    {holders.length ? holders.map((h) => h.name).join(', ') : L('nobody yet', 'まだ誰もいません')}
+                  </span>
+                  {r.custom ? (
+                    <button
+                      onClick={() => removeJobRole(r.id)}
+                      className="ml-auto text-slate-300 hover:text-red-600"
+                      aria-label={L(`Delete role ${T(r.label)}`, `ROLE「${T(r.label)}」を削除`)}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <span className="ml-auto text-xs text-slate-300">{L('default', '既定')}</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <form
+            className="mt-4 flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (addJobRole(newRole)) setNewRole('');
+            }}
+          >
+            <input
+              id="cebu-new-role"
+              className={cx(inputCls, 'py-1.5')}
+              placeholder={L('New role, e.g. Marketing', '新しい ROLE（例: Marketing）')}
+              value={newRole}
+              onChange={(e) => setNewRole(e.target.value)}
+            />
+            <button type="submit" disabled={!newRole.trim()} className={cx(btn.primary, 'py-1.5 whitespace-nowrap')}>
+              <Plus className="w-4 h-4" /> {L('Add role', 'ROLE 追加')}
+            </button>
+          </form>
+        </Card>
+
+        <AddStaffCard />
+      </div>
+
+      <Card title={L('Staff', 'スタッフ一覧')} icon={<Users className="w-5 h-5 text-slate-600" />}>
+        <div className="grid md:grid-cols-2 gap-3">
+          {[...activeStaff, ...inactive].map((s) => (
+            <StaffEditor key={s.id} member={s} />
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+/** ROLE をタップで付け外しするチップ群 */
+function RolePicker({ value, onChange }: { value: string[]; onChange: (ids: string[]) => void }) {
+  const { jobRoles, T } = useApp();
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {jobRoles.map((r) => {
+        const on = value.includes(r.id);
+        return (
+          <button
+            key={r.id}
+            type="button"
+            aria-pressed={on}
+            onClick={() => onChange(on ? value.filter((x) => x !== r.id) : [...value, r.id])}
+            className={cx(
+              'text-xs font-semibold px-2 py-1 rounded-md ring-1 whitespace-nowrap transition',
+              on ? r.color : 'bg-white text-slate-400 ring-slate-200 hover:text-slate-600',
+            )}
+          >
+            {on ? '✓ ' : '+ '}
+            {T(r.label)}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function AddStaffCard() {
+  const { addStaff, L } = useApp();
+  const [name, setName] = useState('');
+  const [avatar, setAvatar] = useState(AVATARS[6]);
+  const [roles, setRoles] = useState<string[]>([]);
+
+  return (
+    <Card title={L('Add Staff', 'スタッフ追加')} icon={<Plus className="w-5 h-5 text-sky-600" />} className="lg:col-span-2">
+      <form
+        className="space-y-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!name.trim()) return;
+          addStaff({ name: name.trim(), avatar, roles });
+          setName('');
+          setRoles([]);
+        }}
+      >
+        <div className="grid sm:grid-cols-3 gap-3">
+          <div className="sm:col-span-2">
+            <label className={labelCls} htmlFor="cebu-new-staff-name">
+              {L('Name *', '名前 *')}
+            </label>
+            <input
+              id="cebu-new-staff-name"
+              className={inputCls}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={L('e.g. Joy', '例: Joy')}
+            />
+          </div>
+          <div>
+            <label className={labelCls}>{L('Icon', 'アイコン')}</label>
+            <div className="flex flex-wrap gap-1">
+              {AVATARS.map((a) => (
+                <button
+                  key={a}
+                  type="button"
+                  onClick={() => setAvatar(a)}
+                  aria-pressed={avatar === a}
+                  className={cx('w-8 h-8 rounded-lg text-lg', avatar === a ? 'bg-sky-100 ring-2 ring-sky-500' : 'hover:bg-slate-100')}
+                >
+                  {a}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div>
+          <label className={labelCls}>{L('Roles (tap to add or remove)', 'ROLE（タップで付け外し）')}</label>
+          <RolePicker value={roles} onChange={setRoles} />
+        </div>
+        <button type="submit" disabled={!name.trim()} className={btn.primary}>
+          <Plus className="w-4 h-4" /> {L('Add staff', 'スタッフを追加')}
+        </button>
+      </form>
+    </Card>
+  );
+}
+
+function StaffEditor({ member }: { member: Staff }) {
+  const { saveStaff, setStaffActive, tasks, activeStaff, L } = useApp();
+  const [name, setName] = useState(member.name);
+  const [roles, setRoles] = useState<string[]>(member.roles);
+  const [confirmOff, setConfirmOff] = useState(false);
+  const openTasks = tasks.filter((t) => t.assigneeId === member.id && t.status !== 'done').length;
+  const dirty = name.trim() !== member.name || roles.length !== member.roles.length || roles.some((r) => !member.roles.includes(r));
+  const lastActive = member.active && activeStaff.length <= 1;
+
+  return (
+    <div className={cx('rounded-xl ring-1 p-3 space-y-3', member.active ? 'ring-slate-200 bg-white' : 'ring-slate-200 bg-slate-50 opacity-75')}>
+      <div className="flex items-center gap-2">
+        <span className="text-2xl">{member.avatar}</span>
+        <input
+          id={`cebu-staff-name-${member.id}`}
+          aria-label={L('Name', '名前')}
+          className={cx(inputCls, 'py-1.5 font-semibold')}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          disabled={!member.active}
+        />
+        {!member.active && <Badge className="bg-slate-200 text-slate-700 ring-slate-300">{L('Inactive', '無効')}</Badge>}
+      </div>
+      <div>
+        <div className="text-xs font-semibold text-slate-500 mb-1">
+          ROLE <span className="font-normal text-slate-400">({roles.length})</span>
+        </div>
+        {member.active ? <RolePicker value={roles} onChange={setRoles} /> : <RoleBadges ids={member.roles} />}
+      </div>
+      <div className="text-xs text-slate-500">{L(`${openTasks} open task(s) assigned`, `担当中のタスク ${openTasks}件`)}</div>
+
+      {confirmOff ? (
+        <div className="rounded-lg bg-orange-50 ring-1 ring-orange-200 p-2 text-xs text-orange-800 space-y-2">
+          <div>
+            {openTasks > 0
+              ? L(
+                  `${member.name} still has ${openTasks} open task(s). They stay assigned and keep showing the name. Deactivate anyway?`,
+                  `${member.name} には未完了タスクが ${openTasks}件 残っています（担当者名はそのまま表示されます）。無効化しますか？`,
+                )
+              : L(`Deactivate ${member.name}? You can reactivate later.`, `${member.name} を無効化しますか？ あとで再有効化できます。`)}
+          </div>
+          <div className="flex gap-2">
+            <button
+              className={cx(btn.orange, 'py-1')}
+              onClick={() => {
+                setStaffActive(member.id, false);
+                setConfirmOff(false);
+              }}
+            >
+              {L('Deactivate', '無効化する')}
+            </button>
+            <button className={cx(btn.ghost, 'py-1')} onClick={() => setConfirmOff(false)}>
+              {L('Cancel', 'キャンセル')}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {member.active ? (
+            <>
+              <button
+                disabled={!dirty || !name.trim()}
+                onClick={() => saveStaff(member.id, { name: name.trim(), roles })}
+                className={cx(btn.green, 'py-1.5')}
+              >
+                <Check className="w-4 h-4" /> {L('Save', '保存')}
+              </button>
+              {dirty && (
+                <button
+                  onClick={() => {
+                    setName(member.name);
+                    setRoles(member.roles);
+                  }}
+                  className={cx(btn.ghost, 'py-1.5')}
+                >
+                  <RotateCcw className="w-4 h-4" /> {L('Undo changes', '変更を戻す')}
+                </button>
+              )}
+              <button
+                disabled={lastActive}
+                title={lastActive ? L('At least one active staff member is required', '有効なスタッフが最低1名必要です') : undefined}
+                onClick={() => setConfirmOff(true)}
+                className={cx(btn.ghost, 'py-1.5 ml-auto text-red-600')}
+              >
+                {L('Deactivate', '無効化')}
+              </button>
+            </>
+          ) : (
+            <button onClick={() => setStaffActive(member.id, true)} className={cx(btn.primary, 'py-1.5')}>
+              <RotateCcw className="w-4 h-4" /> {L('Reactivate', '再有効化')}
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
