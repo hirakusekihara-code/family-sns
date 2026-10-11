@@ -193,15 +193,37 @@ interface Student {
   level: string;
   mode: 'face' | 'online';
   pastLessons: number;
+  /** 対面のみ: 受講期間（YYYY-MM-DD） */
+  startDate?: string;
+  endDate?: string;
+  /** 対面のみ: 1日の受講時間帯（HH:mm）。この範囲に収まる標準コマが受講対象 */
+  startTime?: string;
+  endTime?: string;
 }
 
-interface Slot {
-  id: string;
+/** 標準コマ（各50分・12:00-13:00 昼休憩） */
+interface StdSlot {
   no: number;
   start: string;
   end: string;
-  staffId: string | null;
-  studentIds: string[];
+}
+
+interface Subject {
+  id: string;
+  name: Text;
+  custom?: boolean;
+}
+
+/** 対面授業 1コマ分のアサイン（日付 × 生徒 × コマ） */
+interface Lesson {
+  id: string;
+  date: string;
+  studentId: string;
+  slotNo: number;
+  subjectId?: string;
+  teacherId?: string;
+  /** 講師がアサインされた時刻（本日のマイルストーンの NEW 表示用） */
+  assignedAt?: number;
 }
 
 interface OnlineBooking {
@@ -377,6 +399,38 @@ const levelText = (lang: Lang, s: Pick<Student, 'levelSystem' | 'level'>) =>
   `${s.levelSystem === 'CEFR' ? 'CEFR' : lang === 'ja' ? '英検' : 'EIKEN'} ${levelName(lang, s.levelSystem, s.level)}`;
 
 const HQO_THRESHOLD = 15000;
+
+const STD_SLOTS: StdSlot[] = [
+  { no: 1, start: '08:00', end: '08:50' },
+  { no: 2, start: '09:00', end: '09:50' },
+  { no: 3, start: '10:00', end: '10:50' },
+  { no: 4, start: '11:00', end: '11:50' },
+  { no: 5, start: '13:00', end: '13:50' },
+  { no: 6, start: '14:00', end: '14:50' },
+  { no: 7, start: '15:00', end: '15:50' },
+  { no: 8, start: '16:00', end: '16:50' },
+  { no: 9, start: '17:00', end: '17:50' },
+];
+const slotOf = (no: number) => STD_SLOTS.find((x) => x.no === no);
+/** 受講時間帯の選択肢（08:00〜18:00） */
+const START_TIMES = ['08:00', '09:00', '10:00', '11:00', '13:00', '14:00', '15:00', '16:00', '17:00'];
+const END_TIMES = ['09:00', '10:00', '11:00', '12:00', '14:00', '15:00', '16:00', '17:00', '18:00'];
+/** 生徒の受講時間帯に収まる標準コマ */
+const slotsInWindow = (startTime?: string, endTime?: string) =>
+  startTime && endTime ? STD_SLOTS.filter((x) => x.start >= startTime && x.end <= endTime) : [];
+const isEnrolledOn = (st: Student, date: string) =>
+  st.mode === 'face' && !!st.startDate && !!st.endDate && st.startDate <= date && date <= st.endDate;
+
+const DEFAULT_SUBJECTS: Subject[] = [
+  { id: 'speaking', name: bi('Speaking', 'スピーキング') },
+  { id: 'listening', name: bi('Listening', 'リスニング') },
+  { id: 'reading', name: bi('Reading', 'リーディング') },
+  { id: 'writing', name: bi('Writing', 'ライティング') },
+  { id: 'vocabulary', name: bi('Vocabulary', '語彙') },
+  { id: 'grammar', name: bi('Grammar', '文法') },
+  { id: 'pronunciation', name: bi('Pronunciation', '発音') },
+  { id: 'business', name: bi('Business English', 'ビジネス英語') },
+];
 
 /* ============================================================================
  * Utilities
@@ -754,31 +808,68 @@ function initialAttendance(): Record<string, Attendance> {
 
 function initialStudents(): Student[] {
   return [
-    { id: 'st_yamada', name: 'Yamada Taro', ageGroup: 'Adult', levelSystem: 'CEFR', level: 'A2', mode: 'face', pastLessons: 5 },
+    {
+      id: 'st_yamada',
+      name: 'Yamada Taro',
+      ageGroup: 'Adult',
+      levelSystem: 'CEFR',
+      level: 'A2',
+      mode: 'face',
+      pastLessons: 5,
+      startDate: dayRel(-10),
+      endDate: dayRel(50),
+      startTime: '08:00',
+      endTime: '17:00',
+    },
     { id: 'st_kato', name: 'Ken Kato', ageGroup: 'Adult', levelSystem: 'CEFR', level: 'B1', mode: 'online', pastLessons: 1 },
-    { id: 'st_sato', name: 'Sato Hana', ageGroup: 'Kids', levelSystem: 'EIKEN', level: '4級', mode: 'face', pastLessons: 3 },
+    {
+      id: 'st_sato',
+      name: 'Sato Hana',
+      ageGroup: 'Kids',
+      levelSystem: 'EIKEN',
+      level: '4級',
+      mode: 'face',
+      pastLessons: 3,
+      startDate: dayRel(-5),
+      endDate: dayRel(25),
+      startTime: '13:00',
+      endTime: '16:00',
+    },
     { id: 'st_suzuki', name: 'Suzuki Yui', ageGroup: 'Kids', levelSystem: 'EIKEN', level: '3級', mode: 'online', pastLessons: 0 },
-    { id: 'st_tanaka', name: 'Tanaka Ryo', ageGroup: 'Adult', levelSystem: 'CEFR', level: 'B2', mode: 'face', pastLessons: 8 },
+    {
+      id: 'st_tanaka',
+      name: 'Tanaka Ryo',
+      ageGroup: 'Adult',
+      levelSystem: 'CEFR',
+      level: 'B2',
+      mode: 'face',
+      pastLessons: 8,
+      startDate: dayRel(0),
+      endDate: dayRel(30),
+      startTime: '09:00',
+      endTime: '12:00',
+    },
   ];
 }
 
-function initialSlots(): Slot[] {
-  const times: Array<[string, string]> = [
-    ['08:00', '09:00'],
-    ['09:00', '10:00'],
-    ['10:00', '11:00'],
-    ['11:00', '12:00'],
-    ['13:00', '14:00'],
-    ['14:00', '15:00'],
+function initialLessons(): Lesson[] {
+  const d = todayStr();
+  const l = (studentId: string, slotNo: number, subjectId?: string, teacherId?: string): Lesson => ({
+    id: uid('ls'),
+    date: d,
+    studentId,
+    slotNo,
+    subjectId,
+    teacherId,
+  });
+  return [
+    l('st_yamada', 1, 'speaking', 'alyssa'),
+    l('st_yamada', 2, 'listening', 'maria'),
+    l('st_yamada', 3, 'grammar', 'maria'),
+    l('st_tanaka', 2, 'business', 'alyssa'),
+    l('st_tanaka', 3, 'reading'),
+    l('st_sato', 5, 'vocabulary', 'maria'),
   ];
-  return times.map(([start, end], i) => ({
-    id: `slot_${i + 1}`,
-    no: i + 1,
-    start,
-    end,
-    staffId: i === 0 ? 'alyssa' : i === 2 ? 'maria' : i === 4 ? 'maria' : null,
-    studentIds: i === 0 ? ['st_yamada'] : i === 2 ? ['st_sato'] : i === 4 ? ['st_tanaka'] : [],
-  }));
 }
 
 function initialBookings(): OnlineBooking[] {
@@ -853,13 +944,13 @@ interface AppCtx {
   tasks: Task[];
   visits: VisitLog[];
   students: Student[];
-  slots: Slot[];
+  lessons: Lesson[];
+  subjects: Subject[];
   bookings: OnlineBooking[];
   feed: FeedItem[];
   history: DTRRow[];
   gpsMode: 'office' | 'outside';
   gpsBusy: boolean;
-  slotPops: Record<string, number>;
   setGpsMode: (m: 'office' | 'outside') => void;
   setTab: (t: TabKey) => void;
   openAddTask: () => void;
@@ -881,9 +972,13 @@ interface AppCtx {
   finishVisit: (taskId: string, receipt: Omit<Evidence, 'id' | 'at'>) => void;
   addStudent: (s: Omit<Student, 'id'>) => void;
   removeStudent: (id: string) => void;
-  setSlotStaff: (slotId: string, staffId: string | null) => void;
-  addSlotStudent: (slotId: string, studentId: string) => void;
-  removeSlotStudent: (slotId: string, studentId: string) => void;
+  /** 対面授業のアサイン。講師が同じ日・同じコマで他の生徒に入っている場合は false（拒否） */
+  setLesson: (date: string, studentId: string, slotNo: number, patch: { subjectId?: string | null; teacherId?: string | null }) => boolean;
+  /** その日・そのコマで講師が他の生徒を担当中なら、その生徒名 */
+  busyWith: (date: string, slotNo: number, teacherId: string, exceptStudentId?: string) => string | null;
+  subjectName: (id?: string) => string;
+  addSubject: (name: string) => boolean;
+  removeSubject: (id: string) => void;
   addBooking: (b: Omit<OnlineBooking, 'id'>) => void;
   removeBooking: (id: string) => void;
   lessonNo: (b: OnlineBooking) => number;
@@ -917,7 +1012,8 @@ export default function CebuSyncApp() {
   const [tasks, setTasks] = useState<Task[]>(seed.tasks);
   const [visits, setVisits] = useState<VisitLog[]>(seed.visits);
   const [students, setStudents] = useState<Student[]>(initialStudents);
-  const [slots, setSlots] = useState<Slot[]>(initialSlots);
+  const [lessons, setLessons] = useState<Lesson[]>(initialLessons);
+  const [subjects, setSubjects] = useState<Subject[]>(DEFAULT_SUBJECTS);
   const [bookings, setBookings] = useState<OnlineBooking[]>(initialBookings);
   const [feed, setFeed] = useState<FeedItem[]>(() => [
     {
@@ -944,7 +1040,6 @@ export default function CebuSyncApp() {
   const [gpsMode, setGpsMode] = useState<'office' | 'outside'>('office');
   const [gpsBusy, setGpsBusy] = useState(false);
   const [showAddTask, setShowAddTask] = useState(false);
-  const [slotPops, setSlotPops] = useState<Record<string, number>>({});
 
   // 1秒ごとの時計
   useEffect(() => {
@@ -1261,34 +1356,79 @@ export default function CebuSyncApp() {
   };
   const removeStudent = (id: string) => {
     setStudents((ss) => ss.filter((s) => s.id !== id));
-    setSlots((sl) => sl.map((s) => ({ ...s, studentIds: s.studentIds.filter((x) => x !== id) })));
+    setLessons((ls) => ls.filter((l) => l.studentId !== id));
     setBookings((bs) => bs.filter((b) => b.studentId !== id));
   };
 
-  const popSlot = (slot: Slot) => {
-    if (!slot.staffId || slot.studentIds.length === 0) return;
-    setSlotPops((p) => ({ ...p, [slot.id]: Date.now() }));
-    const who = staffName(slot.staffId);
-    toast(
-      bi(
-        `📌 Added period ${slot.no} (${slot.start}) lesson to ${who}’s Today’s Milestones`,
-        `📌 ${who} の「本日のマイルストーン」に ${slot.no}限 (${slot.start}) のレッスンを自動追加しました`,
-      ),
-      'ok',
-    );
+  const studentName = (id: string) => students.find((x) => x.id === id)?.name ?? '—';
+  const subjectName = (id?: string) => {
+    const sb = subjects.find((x) => x.id === id);
+    return sb ? T(sb.name) : '';
   };
-  const updateSlot = (slotId: string, fn: (s: Slot) => Slot) => {
-    const cur = slots.find((s) => s.id === slotId);
-    if (!cur) return;
-    const next = fn(cur);
-    setSlots((sl) => sl.map((s) => (s.id === slotId ? next : s)));
-    popSlot(next);
+  const busyWith = (date: string, slotNo: number, teacherId: string, exceptStudentId?: string) => {
+    const hit = lessons.find((l) => l.date === date && l.slotNo === slotNo && l.teacherId === teacherId && l.studentId !== exceptStudentId);
+    return hit ? studentName(hit.studentId) : null;
   };
-  const setSlotStaff = (slotId: string, staffId: string | null) => updateSlot(slotId, (s) => ({ ...s, staffId }));
-  const addSlotStudent = (slotId: string, studentId: string) =>
-    updateSlot(slotId, (s) => (s.studentIds.includes(studentId) ? s : { ...s, studentIds: [...s.studentIds, studentId] }));
-  const removeSlotStudent = (slotId: string, studentId: string) =>
-    setSlots((sl) => sl.map((s) => (s.id === slotId ? { ...s, studentIds: s.studentIds.filter((x) => x !== studentId) } : s)));
+
+  const setLesson = (date: string, studentId: string, slotNo: number, patch: { subjectId?: string | null; teacherId?: string | null }) => {
+    const slot = slotOf(slotNo);
+    if (patch.teacherId) {
+      const other = busyWith(date, slotNo, patch.teacherId, studentId);
+      if (other) {
+        const who = staffName(patch.teacherId);
+        toast(
+          bi(
+            `⛔ ${who} is already teaching ${other} in slot ${slotNo} (${slot?.start}) on ${date}. Choose another teacher.`,
+            `⛔ ${who} は ${date} の Slot ${slotNo}（${slot?.start}）で既に ${other} を担当しています。別の講師を選んでください。`,
+          ),
+          'danger',
+        );
+        return false;
+      }
+    }
+    const cur = lessons.find((l) => l.date === date && l.studentId === studentId && l.slotNo === slotNo);
+    const next: Lesson = { ...(cur ?? { id: uid('ls'), date, studentId, slotNo }) };
+    if (patch.subjectId !== undefined) next.subjectId = patch.subjectId ?? undefined;
+    const teacherChanged = patch.teacherId !== undefined && (patch.teacherId ?? undefined) !== cur?.teacherId;
+    if (patch.teacherId !== undefined) {
+      next.teacherId = patch.teacherId ?? undefined;
+      next.assignedAt = patch.teacherId ? nowTs() : undefined;
+    }
+    setLessons((ls) => (cur ? ls.map((l) => (l.id === cur.id ? next : l)) : [...ls, next]));
+    if (teacherChanged && next.teacherId) {
+      const who = staffName(next.teacherId);
+      const st = studentName(studentId);
+      toast(
+        date === todayStr()
+          ? bi(
+              `📌 Added slot ${slotNo} (${slot?.start}) · ${st} to ${who}’s Today’s Milestones`,
+              `📌 ${who} の「本日のマイルストーン」に Slot ${slotNo}（${slot?.start}）${st} の授業を自動追加しました`,
+            )
+          : bi(`📅 ${who} assigned to ${st} — ${date} slot ${slotNo} (${slot?.start})`, `📅 ${who} を ${st} に割り当てました — ${date} Slot ${slotNo}（${slot?.start}）`),
+        'ok',
+      );
+    }
+    return true;
+  };
+
+  const addSubject = (name: string) => {
+    const n = name.trim();
+    if (!n) return false;
+    if (subjects.some((x) => [tx('en', x.name), tx('ja', x.name)].some((v) => v.toLowerCase() === n.toLowerCase()))) {
+      toast(bi(`"${n}" already exists`, `「${n}」は既にあります`), 'warn');
+      return false;
+    }
+    setSubjects((list) => [...list, { id: uid('sub'), name: n, custom: true }]);
+    toast(bi(`Subject added: ${n}`, `科目を追加しました: ${n}`), 'ok');
+    return true;
+  };
+  const removeSubject = (id: string) => {
+    const sb = subjects.find((x) => x.id === id);
+    if (!sb) return;
+    setSubjects((list) => list.filter((x) => x.id !== id));
+    setLessons((ls) => ls.map((l) => (l.subjectId === id ? { ...l, subjectId: undefined } : l)));
+    toast(bi(`Subject removed: ${tx('en', sb.name)}`, `科目を削除しました: ${tx('ja', sb.name)}`), 'info');
+  };
 
   const lessonNo = (b: OnlineBooking) => {
     const st = students.find((s) => s.id === b.studentId);
@@ -1398,13 +1538,13 @@ export default function CebuSyncApp() {
     tasks,
     visits,
     students,
-    slots,
+    lessons,
+    subjects,
     bookings,
     feed,
     history,
     gpsMode,
     gpsBusy,
-    slotPops,
     setGpsMode,
     setTab,
     openAddTask: () => setShowAddTask(true),
@@ -1426,9 +1566,11 @@ export default function CebuSyncApp() {
     finishVisit,
     addStudent,
     removeStudent,
-    setSlotStaff,
-    addSlotStudent,
-    removeSlotStudent,
+    setLesson,
+    busyWith,
+    subjectName,
+    addSubject,
+    removeSubject,
     addBooking,
     removeBooking,
     lessonNo,
@@ -2074,11 +2216,11 @@ function AttendanceCard() {
 }
 
 function MyTodayCard() {
-  const { me, tasks, slots, bookings, students, slotPops, now, lessonNo, setTab, toggleMilestone, L, T, lang } = useApp();
+  const { me, tasks, lessons, bookings, students, now, lessonNo, subjectName, setTab, toggleMilestone, L, T, lang } = useApp();
   const today = todayStr();
   const myTasks = tasks.filter((t) => t.assigneeId === me.id && t.status !== 'done');
   const msItems = myTasks.flatMap((t) => t.milestones.filter((m) => !m.done && m.due <= today).map((m) => ({ t, m })));
-  const mySlots = slots.filter((s) => s.staffId === me.id && s.studentIds.length > 0);
+  const mySlots = lessons.filter((l) => l.date === today && l.teacherId === me.id).sort((a, b) => a.slotNo - b.slotNo);
   const myOnline = bookings
     .filter((b) => b.teacherId === me.id && b.datetime.startsWith(today))
     .sort((a, b) => a.datetime.localeCompare(b.datetime));
@@ -2091,24 +2233,24 @@ function MyTodayCard() {
       right={<span className="text-xs text-slate-400">{L(`${total} items`, `${total}件`)}</span>}
     >
       <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
-        {mySlots.map((s) => {
-          const isNew = slotPops[s.id] && now - slotPops[s.id] < 60000;
+        {mySlots.map((l) => {
+          const slot = slotOf(l.slotNo);
+          const isNew = !!l.assignedAt && now - l.assignedAt < 60000;
+          const subj = subjectName(l.subjectId);
           return (
             <div
-              key={s.id}
+              key={l.id}
               className={cx('rounded-xl p-3 ring-1 flex gap-3 items-start', isNew ? 'bg-pink-50 ring-pink-300 animate-pulse' : 'bg-pink-50 ring-pink-100')}
             >
               <GraduationCap className="w-5 h-5 text-pink-600 shrink-0 mt-0.5" />
               <div className="min-w-0">
                 <div className="text-sm font-semibold">
-                  🎓 {L(`Face-to-face lesson · Period ${s.no}`, `対面レッスン ${s.no}限`)} {s.start}–{s.end}
+                  🎓 {L(`In-person · Slot ${l.slotNo}`, `対面授業 Slot ${l.slotNo}`)} {slot?.start}–{slot?.end}
                   {isNew && <span className="ml-2 text-xs bg-pink-600 text-white rounded px-1.5 py-0.5">{L('NEW · auto-added', 'NEW 自動追加')}</span>}
                 </div>
                 <div className="text-xs text-slate-600 truncate">
-                  {s.studentIds
-                    .map((id) => students.find((x) => x.id === id)?.name)
-                    .filter(Boolean)
-                    .join(', ')}
+                  {students.find((x) => x.id === l.studentId)?.name ?? '—'}
+                  {subj ? ` · ${subj}` : ` · ${L('subject not set', '科目未設定')}`}
                 </div>
               </div>
             </div>
@@ -3421,6 +3563,8 @@ function StudentsTab() {
         <StudentForm />
         <StudentList />
       </div>
+      {/* 生徒登録 → 科目設定 → 講師アサイン の順（セブオフィスのスタッフが日常的に使う） */}
+      <SubjectMasterCard />
       <Timetable />
       <OnlineLessons />
     </div>
@@ -3435,13 +3579,57 @@ function StudentForm() {
   const [level, setLevel] = useState('A1');
   const [mode, setMode] = useState<'face' | 'online'>('face');
   const [past, setPast] = useState('0');
+  const [startDate, setStartDate] = useState(todayStr());
+  const [endDate, setEndDate] = useState(dayRel(27));
+  const [startTime, setStartTime] = useState('08:00');
+  const [endTime, setEndTime] = useState('17:00');
+  const [error, setError] = useState('');
+
+  const slots = slotsInWindow(startTime, endTime);
+  const faceError =
+    mode !== 'face'
+      ? ''
+      : !startDate || !endDate
+        ? L('Enter the start and end dates', '受講期間（開始日・終了日）を入力してください')
+        : endDate < startDate
+          ? L('End date must be on or after the start date', '終了日は開始日以降にしてください')
+          : endTime <= startTime
+            ? L('End time must be after the start time', '終了時刻は開始時刻より後にしてください')
+            : slots.length === 0
+              ? L('No standard slot fits in this time window', 'この時間帯に入る標準コマがありません')
+              : '';
+
+  const submit = () => {
+    if (!name.trim()) return setError(L('Enter the student’s name', '氏名を入力してください'));
+    if (faceError) return setError(faceError);
+    addStudent({
+      name: name.trim(),
+      ageGroup,
+      levelSystem,
+      level,
+      mode,
+      pastLessons: Math.max(0, Number(past) || 0),
+      ...(mode === 'face' ? { startDate, endDate, startTime, endTime } : {}),
+    });
+    setName('');
+    setPast('0');
+    setError('');
+  };
 
   return (
     <Card title={L('Register Student', '学生登録')} icon={<Plus className="w-5 h-5 text-sky-600" />}>
       <div className="space-y-3">
         <div>
-          <label className={labelCls}>{L('Name *', '氏名 *')}</label>
-          <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder={L('e.g. Suzuki Ichiro', '例: Suzuki Ichiro')} />
+          <label className={labelCls} htmlFor="cebu-st-name">
+            {L('Name *', '氏名 *')}
+          </label>
+          <input
+            id="cebu-st-name"
+            className={inputCls}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={L('e.g. Suzuki Ichiro', '例: Suzuki Ichiro')}
+          />
         </div>
         <div className="grid grid-cols-2 gap-2">
           <div>
@@ -3460,6 +3648,54 @@ function StudentForm() {
             />
           </div>
         </div>
+
+        {mode === 'face' && (
+          <div className="rounded-xl bg-pink-50 ring-1 ring-pink-200 p-3 space-y-2">
+            <div className="text-xs font-bold text-pink-800">🏫 {L('In-person schedule (required)', '対面授業の受講条件（必須）')}</div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className={labelCls} htmlFor="cebu-st-start">
+                  {L('Start date *', '開始日 *')}
+                </label>
+                <input id="cebu-st-start" type="date" className={inputCls} value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls} htmlFor="cebu-st-end">
+                  {L('End date *', '終了日 *')}
+                </label>
+                <input id="cebu-st-end" type="date" className={inputCls} value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls} htmlFor="cebu-st-stime">
+                  {L('Daily start *', '開始時刻 *')}
+                </label>
+                <select id="cebu-st-stime" className={inputCls} value={startTime} onChange={(e) => setStartTime(e.target.value)}>
+                  {START_TIMES.map((t) => (
+                    <option key={t}>{t}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className={labelCls} htmlFor="cebu-st-etime">
+                  {L('Daily end *', '終了時刻 *')}
+                </label>
+                <select id="cebu-st-etime" className={inputCls} value={endTime} onChange={(e) => setEndTime(e.target.value)}>
+                  {END_TIMES.map((t) => (
+                    <option key={t}>{t}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className={cx('text-xs', faceError ? 'text-red-600' : 'text-pink-800')}>
+              {faceError ||
+                L(
+                  `${slots.length} slot(s) a day: Slot ${slots[0]?.no}–${slots[slots.length - 1]?.no} (${slots[0]?.start}–${slots[slots.length - 1]?.end}, lunch 12:00–13:00)`,
+                  `1日 ${slots.length}コマ: Slot ${slots[0]?.no}〜${slots[slots.length - 1]?.no}（${slots[0]?.start}〜${slots[slots.length - 1]?.end}、昼休憩 12:00〜13:00）`,
+                )}
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-2">
           <div>
             <label className={labelCls}>{L('Level scale', 'レベル指標')}</label>
@@ -3476,8 +3712,10 @@ function StudentForm() {
             />
           </div>
           <div>
-            <label className={labelCls}>{L('English level', '英語レベル')}</label>
-            <select className={inputCls} value={level} onChange={(e) => setLevel(e.target.value)}>
+            <label className={labelCls} htmlFor="cebu-st-level">
+              {L('English level', '英語レベル')}
+            </label>
+            <select id="cebu-st-level" className={inputCls} value={level} onChange={(e) => setLevel(e.target.value)}>
               {(levelSystem === 'CEFR' ? CEFR_LEVELS : EIKEN_LEVELS).map((l) => (
                 <option key={l} value={l}>
                   {levelName(lang, levelSystem, l)}
@@ -3487,18 +3725,13 @@ function StudentForm() {
           </div>
         </div>
         <div>
-          <label className={labelCls}>{L('Past lessons (carried over)', '過去の受講回数（移行データ）')}</label>
-          <input type="number" min={0} className={inputCls} value={past} onChange={(e) => setPast(e.target.value)} />
+          <label className={labelCls} htmlFor="cebu-st-past">
+            {L('Past lessons (carried over)', '過去の受講回数（移行データ）')}
+          </label>
+          <input id="cebu-st-past" type="number" min={0} className={inputCls} value={past} onChange={(e) => setPast(e.target.value)} />
         </div>
-        <button
-          disabled={!name.trim()}
-          onClick={() => {
-            addStudent({ name: name.trim(), ageGroup, levelSystem, level, mode, pastLessons: Math.max(0, Number(past) || 0) });
-            setName('');
-            setPast('0');
-          }}
-          className={cx(btn.primary, 'w-full')}
-        >
+        {error && <div className="text-sm text-red-600">{error}</div>}
+        <button disabled={!name.trim() || !!faceError} onClick={submit} className={cx(btn.primary, 'w-full')}>
           <Plus className="w-4 h-4" /> {L('Register', '登録する')}
         </button>
       </div>
@@ -3555,6 +3788,7 @@ function StudentList() {
               <th className="py-2 pr-3">{L('Age group', '年齢区分')}</th>
               <th className="py-2 pr-3">{L('Level', 'レベル')}</th>
               <th className="py-2 pr-3">{L('Type', '受講タイプ')}</th>
+              <th className="py-2 pr-3">{L('In-person period / hours', '対面 受講期間・時間帯')}</th>
               <th className="py-2 pr-3">{L('Lessons', '受講回数')}</th>
               <th className="py-2" />
             </tr>
@@ -3574,6 +3808,18 @@ function StudentList() {
                     <Badge className="bg-sky-50 text-sky-700 ring-sky-200">{levelText(lang, s)}</Badge>
                   </td>
                   <td className="py-2 pr-3">{s.mode === 'face' ? L('🏫 In person', '🏫 対面') : L('💻 Online', '💻 オンライン')}</td>
+                  <td className="py-2 pr-3 text-xs text-slate-600 whitespace-nowrap">
+                    {s.mode === 'face' && s.startDate && s.endDate ? (
+                      <>
+                        {fmtDate(lang, s.startDate)} 〜 {fmtDate(lang, s.endDate)}
+                        <span className="block font-mono">
+                          {s.startTime}–{s.endTime} · {L(`${slotsInWindow(s.startTime, s.endTime).length} slots/day`, `1日${slotsInWindow(s.startTime, s.endTime).length}コマ`)}
+                        </span>
+                      </>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
                   <td className="py-2 pr-3 font-mono">{L(`${done}`, `${done}回`)}</td>
                   <td className="py-2 text-right">
                     {role === 'staff' && (
@@ -3594,90 +3840,195 @@ function StudentList() {
 }
 
 function Timetable() {
-  const { slots, students, setSlotStaff, addSlotStudent, removeSlotStudent, now, activeStaff, staffOf, roleNames, L, lang } = useApp();
-  const teachers = sortByRoles(activeStaff, LESSON_ROLES);
+  const { students, lessons, subjects, setLesson, busyWith, subjectName, activeStaff, staffName, staffOf, roleNames, now, L, T, lang } = useApp();
   const faceStudents = students.filter((s) => s.mode === 'face');
+  const [date, setDate] = useState(todayStr());
+  const [studentId, setStudentId] = useState(faceStudents[0]?.id ?? '');
+  const st = students.find((s) => s.id === studentId);
+  const enrolled = st ? isEnrolledOn(st, date) : false;
+  const rows = st && enrolled ? slotsInWindow(st.startTime, st.endTime) : [];
+  const teachers = sortByRoles(activeStaff, LESSON_ROLES);
   const d = new Date(now);
   const cur = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const dayLessons = lessons.filter((l) => l.date === date && l.teacherId);
+
   return (
     <Card
-      title={L(`In-person Class Timetable — Today ${fmtDate(lang, todayStr())}`, `対面クラス時間割 — 本日 ${fmtDate(lang, todayStr())}`)}
+      title={L('In-person Timetable', '対面授業 タイムテーブル')}
       icon={<Calendar className="w-5 h-5 text-pink-600" />}
       right={
         <span className="text-xs text-slate-400">
-          {L(
-            'Assign a teacher + students and it’s added to their Today’s Milestones · ★ = Academic / Teacher role',
-            '担当スタッフ + 生徒を紐付けると本日のマイルストーンに自動追加 · ★ = 教務・講師管理 ROLE',
-          )}
+          {L('Standard slots: 50 min · lunch 12:00–13:00 · ★ = Academic / Teacher role', '標準コマ: 各50分・昼休憩 12:00〜13:00 · ★ = 教務・講師管理 ROLE')}
         </span>
       }
     >
-      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
-        {slots.map((s) => {
-          const live = cur >= s.start && cur < s.end;
-          const avail = faceStudents.filter((st) => !s.studentIds.includes(st.id));
-          const linked = !!s.staffId && s.studentIds.length > 0;
-          return (
-            <div
-              key={s.id}
-              className={cx('rounded-xl ring-1 p-3', live ? 'ring-2 ring-emerald-400 bg-emerald-50' : linked ? 'ring-pink-200 bg-pink-50' : 'ring-slate-200 bg-white')}
-            >
-              <div className="flex items-center gap-2 mb-2">
-                <span className="w-7 h-7 rounded-lg bg-slate-800 text-white text-sm font-bold flex items-center justify-center">{s.no}</span>
-                <span className="font-mono font-semibold">
-                  {s.start}–{s.end}
-                </span>
-                {live && <span className="text-xs bg-emerald-600 text-white rounded px-1.5 py-0.5 ml-auto">NOW</span>}
-                {!live && linked && <span className="text-xs text-pink-700 ml-auto">📌 {L('Linked to tasks', 'タスク連動中')}</span>}
-              </div>
-              <label className={labelCls}>{L('Teacher', '担当スタッフ')}</label>
-              <select className={cx(inputCls, 'py-1.5')} value={s.staffId ?? ''} onChange={(e) => setSlotStaff(s.id, e.target.value || null)}>
-                <option value="">{L('— Unassigned —', '— 未割当 —')}</option>
-                {teachers.map((st) => (
-                  <option key={st.id} value={st.id}>
-                    {hasAnyRole(st, LESSON_ROLES) ? '★ ' : ''}
-                    {st.name}
-                    {st.roles.length ? ` — ${roleNames(st.roles)}` : ''}
-                  </option>
+      <div className="flex flex-wrap items-end gap-3 mb-4">
+        <div>
+          <label className={labelCls} htmlFor="cebu-tt-date">
+            {L('Date', '日付')}
+          </label>
+          <input id="cebu-tt-date" type="date" className={cx(inputCls, 'py-1.5')} value={date} onChange={(e) => setDate(e.target.value)} />
+        </div>
+        <div className="min-w-0 flex-1 sm:flex-none sm:w-80">
+          <label className={labelCls} htmlFor="cebu-tt-student">
+            {L('Student', '生徒')}
+          </label>
+          <select id="cebu-tt-student" className={cx(inputCls, 'py-1.5')} value={studentId} onChange={(e) => setStudentId(e.target.value)}>
+            {faceStudents.length === 0 && <option value="">{L('No in-person students', '対面の生徒がいません')}</option>}
+            {faceStudents.map((s) => (
+              <option key={s.id} value={s.id}>
+                {isEnrolledOn(s, date) ? '' : '— '}
+                {s.name}（{s.startTime}–{s.endTime}）{isEnrolledOn(s, date) ? '' : L(' · not enrolled on this date', ' · この日は受講期間外')}
+              </option>
+            ))}
+          </select>
+        </div>
+        {st && st.mode === 'face' && (
+          <div className="text-xs text-slate-500 pb-2">
+            {L('Period', '受講期間')}: {st.startDate ? fmtDate(lang, st.startDate) : '—'} 〜 {st.endDate ? fmtDate(lang, st.endDate) : '—'} · {levelText(lang, st)}
+          </div>
+        )}
+      </div>
+
+      {!st ? (
+        <EmptyState>{L('Register an in-person student first.', '先に対面の生徒を登録してください。')}</EmptyState>
+      ) : !enrolled ? (
+        <div className="rounded-xl bg-slate-50 ring-1 ring-slate-200 p-4 text-sm text-slate-600 text-center">
+          {L(
+            `${st.name} is not enrolled on ${fmtDate(lang, date)}. Pick a date between ${st.startDate ? fmtDate(lang, st.startDate) : '—'} and ${st.endDate ? fmtDate(lang, st.endDate) : '—'}.`,
+            `${fmtDate(lang, date)} は ${st.name} の受講期間外です。${st.startDate ? fmtDate(lang, st.startDate) : '—'} 〜 ${st.endDate ? fmtDate(lang, st.endDate) : '—'} の日付を選んでください。`,
+          )}
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
+                <th className="py-2 pr-3 w-36">{L('Slot', 'コマ')}</th>
+                <th className="py-2 pr-3">{L('Subject', '科目')}</th>
+                <th className="py-2 pr-3">{L('Teacher', '担当講師')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((slot) => {
+                const lesson = lessons.find((l) => l.date === date && l.studentId === st.id && l.slotNo === slot.no);
+                const live = date === todayStr() && cur >= slot.start && cur < slot.end;
+                const assigned = lesson?.teacherId ? staffOf(lesson.teacherId) : undefined;
+                return (
+                  <tr key={slot.no} className={cx('border-b border-slate-100 align-top', live && 'bg-emerald-50')}>
+                    <td className="py-2 pr-3">
+                      <div className="flex items-center gap-2">
+                        <span className="w-7 h-7 rounded-lg bg-slate-800 text-white text-xs font-bold flex items-center justify-center shrink-0">{slot.no}</span>
+                        <span className="font-mono font-semibold whitespace-nowrap">
+                          {slot.start}–{slot.end}
+                        </span>
+                        {live && <span className="text-xs bg-emerald-600 text-white rounded px-1.5 py-0.5">NOW</span>}
+                      </div>
+                    </td>
+                    <td className="py-2 pr-3 min-w-0">
+                      <select
+                        aria-label={L(`Subject for slot ${slot.no}`, `Slot ${slot.no} の科目`)}
+                        className={cx(inputCls, 'py-1.5', !lesson?.subjectId && 'text-slate-400')}
+                        value={lesson?.subjectId ?? ''}
+                        onChange={(e) => setLesson(date, st.id, slot.no, { subjectId: e.target.value || null })}
+                      >
+                        <option value="">{L('— Subject —', '— 科目を選択 —')}</option>
+                        {subjects.map((sb) => (
+                          <option key={sb.id} value={sb.id}>
+                            {T(sb.name)}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="py-2 pr-3 min-w-0">
+                      <select
+                        aria-label={L(`Teacher for slot ${slot.no}`, `Slot ${slot.no} の担当講師`)}
+                        className={cx(inputCls, 'py-1.5', !lesson?.teacherId && 'text-slate-400')}
+                        value={lesson?.teacherId ?? ''}
+                        onChange={(e) => {
+                          // 選び直しが拒否されたら select を元の値に戻す（React が value を再適用）
+                          setLesson(date, st.id, slot.no, { teacherId: e.target.value || null });
+                        }}
+                      >
+                        <option value="">{L('— Teacher —', '— 講師を選択 —')}</option>
+                        {assigned && !assigned.active && (
+                          <option value={assigned.id}>
+                            {assigned.name} {L('(inactive)', '（無効）')}
+                          </option>
+                        )}
+                        {teachers.map((t) => {
+                          const other = busyWith(date, slot.no, t.id, st.id);
+                          return (
+                            <option key={t.id} value={t.id} disabled={!!other}>
+                              {hasAnyRole(t, LESSON_ROLES) ? '★ ' : ''}
+                              {t.name}
+                              {other ? L(` (Busy · with ${other})`, `（Busy · ${other} を担当中）`) : t.roles.length ? ` — ${roleNames(t.roles)}` : ''}
+                            </option>
+                          );
+                        })}
+                      </select>
+                      {assigned && (
+                        <div className="mt-1">
+                          <RoleBadges ids={assigned.roles} highlight={LESSON_ROLES} />
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="mt-5">
+        <h4 className="text-xs font-bold text-slate-500 mb-2">
+          👩‍🏫 {L(`Teacher assignments on ${fmtDate(lang, date)}`, `${fmtDate(lang, date)} の講師アサイン状況`)}
+        </h4>
+        {dayLessons.length === 0 ? (
+          <div className="text-xs text-slate-400">{L('No teachers assigned on this date yet.', 'この日はまだ講師がアサインされていません。')}</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="text-xs">
+              <thead>
+                <tr className="text-left text-slate-500">
+                  <th className="py-1 pr-3">{L('Teacher', '講師')}</th>
+                  {STD_SLOTS.map((x) => (
+                    <th key={x.no} className="py-1 px-1 text-center font-mono">
+                      {x.no}
+                      <span className="block font-normal text-slate-400">{x.start}</span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from(new Set(dayLessons.map((l) => l.teacherId as string))).map((tid) => (
+                  <tr key={tid} className="border-t border-slate-100">
+                    <td className="py-1 pr-3 font-semibold whitespace-nowrap">{staffName(tid)}</td>
+                    {STD_SLOTS.map((x) => {
+                      const l = dayLessons.find((y) => y.teacherId === tid && y.slotNo === x.no);
+                      const stName = l ? students.find((y) => y.id === l.studentId)?.name : '';
+                      return (
+                        <td key={x.no} className="py-1 px-1 text-center">
+                          {l ? (
+                            <span
+                              title={`${stName}${l.subjectId ? ` · ${subjectName(l.subjectId)}` : ''}`}
+                              className="inline-block rounded bg-pink-100 text-pink-800 px-1.5 py-0.5 whitespace-nowrap"
+                            >
+                              {stName?.split(' ')[0]}
+                            </span>
+                          ) : (
+                            <span className="text-slate-200">·</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
                 ))}
-              </select>
-              {s.staffId && (
-                <div className="mt-1">
-                  <RoleBadges ids={staffOf(s.staffId).roles} highlight={LESSON_ROLES} />
-                </div>
-              )}
-              <label className={cx(labelCls, 'mt-2')}>{L('Students', '生徒')}</label>
-              <div className="flex flex-wrap gap-1 mb-1.5 min-h-6">
-                {s.studentIds.map((id) => {
-                  const st = students.find((x) => x.id === id);
-                  if (!st) return null;
-                  return (
-                    <span key={id} className="text-xs bg-white ring-1 ring-pink-200 rounded-full pl-2 pr-1 py-0.5 flex items-center gap-1">
-                      {st.name} <span className="text-slate-400">{levelName(lang, st.levelSystem, st.level)}</span>
-                      <button onClick={() => removeSlotStudent(s.id, id)} className="text-slate-400 hover:text-red-600" aria-label={L('Remove', '外す')}>
-                        <X className="w-3 h-3" />
-                      </button>
-                    </span>
-                  );
-                })}
-                {s.studentIds.length === 0 && <span className="text-xs text-slate-400">{L('None', '未割当')}</span>}
-              </div>
-              <select
-                className={cx(inputCls, 'py-1.5')}
-                value=""
-                onChange={(e) => e.target.value && addSlotStudent(s.id, e.target.value)}
-                disabled={avail.length === 0}
-              >
-                <option value="">{L('+ Add student…', '＋ 生徒を追加…')}</option>
-                {avail.map((st) => (
-                  <option key={st.id} value={st.id}>
-                    {st.name}（{st.ageGroup} / {levelText(lang, st)}）
-                  </option>
-                ))}
-              </select>
-            </div>
-          );
-        })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </Card>
   );
@@ -4169,6 +4520,8 @@ function StaffSettingsTab() {
         <AddStaffCard />
       </div>
 
+      <SubjectMasterCard />
+
       <Card title={L('Staff', 'スタッフ一覧')} icon={<Users className="w-5 h-5 text-slate-600" />}>
         <div className="grid md:grid-cols-2 gap-3">
           {[...activeStaff, ...inactive].map((s) => (
@@ -4362,5 +4715,56 @@ function StaffEditor({ member }: { member: Staff }) {
         </div>
       )}
     </div>
+  );
+}
+
+function SubjectMasterCard() {
+  const { subjects, lessons, addSubject, removeSubject, L, T } = useApp();
+  const [name, setName] = useState('');
+  return (
+    <Card title={L('📚 Subject Master', '📚 科目マスター')} icon={<GraduationCap className="w-5 h-5 text-pink-600" />}>
+      <p className="text-xs text-slate-500 mb-3">
+        {L(
+          'Anyone (Staff, GM, HQO) can add or remove subjects. They appear right away in the in-person timetable.',
+          'スタッフ・GM・HQO の誰でも科目を追加・削除できます。追加した科目はすぐに対面授業タイムテーブルで選べます。',
+        )}
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {subjects.map((sb) => {
+          const used = lessons.filter((l) => l.subjectId === sb.id).length;
+          return (
+            <span key={sb.id} className="inline-flex items-center gap-1.5 text-sm rounded-lg ring-1 ring-pink-200 bg-pink-50 text-pink-800 pl-2.5 pr-1.5 py-1">
+              {T(sb.name)}
+              <span className="text-xs text-pink-500">{L(`${used} lesson(s)`, `${used}コマ`)}</span>
+              <button
+                onClick={() => removeSubject(sb.id)}
+                className="text-pink-300 hover:text-red-600"
+                aria-label={L(`Delete subject ${T(sb.name)}`, `科目「${T(sb.name)}」を削除`)}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </span>
+          );
+        })}
+      </div>
+      <form
+        className="mt-4 flex gap-2 max-w-md"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (addSubject(name)) setName('');
+        }}
+      >
+        <input
+          id="cebu-new-subject"
+          className={cx(inputCls, 'py-1.5')}
+          placeholder={L('New subject, e.g. TOEIC Prep', '新しい科目（例: TOEIC対策）')}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <button type="submit" disabled={!name.trim()} className={cx(btn.primary, 'py-1.5 whitespace-nowrap')}>
+          <Plus className="w-4 h-4" /> {L('Add subject', '科目を追加')}
+        </button>
+      </form>
+    </Card>
   );
 }
