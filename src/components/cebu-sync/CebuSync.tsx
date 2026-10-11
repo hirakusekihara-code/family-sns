@@ -190,8 +190,10 @@ interface Student {
   name: string;
   /** 生年月日（YYYY-MM-DD）。学年マークはここから毎回自動計算する */
   dob: string;
-  levelSystem: 'CEFR' | 'EIKEN';
-  level: string;
+  /** CEFR レベル（CEFR_LEVELS の値。'' = 未設定） */
+  cefr: string;
+  /** 英検の級（EIKEN_LEVELS の id。'' = 未設定） */
+  eiken: string;
   mode: 'face' | 'online';
   pastLessons: number;
   /** 対面のみ: 受講期間（YYYY-MM-DD） */
@@ -383,21 +385,28 @@ const BLOCKERS: Record<BlockerReason, Bi> = {
   overload: bi('⏳ Too Much Work', '⏳ 業務過多'),
 };
 
-const CEFR_LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
-const EIKEN_LEVELS = ['5級', '4級', '3級', '準2級', '2級', '準1級', '1級'];
-const EIKEN_EN: Record<string, string> = {
-  '5級': 'Grade 5',
-  '4級': 'Grade 4',
-  '3級': 'Grade 3',
-  '準2級': 'Grade Pre-2',
-  '2級': 'Grade 2',
-  '準1級': 'Grade Pre-1',
-  '1級': 'Grade 1',
+/** CEFR: 下から Pre-A1 〜 C2 */
+const CEFR_LEVELS = ['Pre-A1', 'A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+/** 英検: Bronze / Silver / Gold（英検Jr.）→ 5級 〜 1級（下から順） */
+const EIKEN_LEVELS: Array<{ id: string; label: Bi }> = [
+  { id: 'bronze', label: bi('Bronze', 'ブロンズ') },
+  { id: 'silver', label: bi('Silver', 'シルバー') },
+  { id: 'gold', label: bi('Gold', 'ゴールド') },
+  { id: '5', label: bi('Grade 5', '5級') },
+  { id: '4', label: bi('Grade 4', '4級') },
+  { id: '3', label: bi('Grade 3', '3級') },
+  { id: 'pre2', label: bi('Grade Pre-2', '準2級') },
+  { id: '2', label: bi('Grade 2', '2級') },
+  { id: 'pre1', label: bi('Grade Pre-1', '準1級') },
+  { id: '1', label: bi('Grade 1', '1級') },
+];
+const eikenName = (lang: Lang, id: string) => {
+  const e = EIKEN_LEVELS.find((x) => x.id === id);
+  return e ? tx(lang, e.label) : '';
 };
-const levelName = (lang: Lang, system: Student['levelSystem'], level: string) =>
-  system === 'CEFR' ? level : lang === 'ja' ? level : EIKEN_EN[level] ?? level;
-const levelText = (lang: Lang, s: Pick<Student, 'levelSystem' | 'level'>) =>
-  `${s.levelSystem === 'CEFR' ? 'CEFR' : lang === 'ja' ? '英検' : 'EIKEN'} ${levelName(lang, s.levelSystem, s.level)}`;
+/** テキスト表示用: "CEFR A2 · EIKEN Grade 3"（未設定は —） */
+const levelText = (lang: Lang, s: Pick<Student, 'cefr' | 'eiken'>) =>
+  `CEFR ${s.cefr || '—'} · ${lang === 'ja' ? '英検' : 'EIKEN'} ${eikenName(lang, s.eiken) || '—'}`;
 
 const HQO_THRESHOLD = 15000;
 
@@ -873,8 +882,8 @@ function initialStudents(): Student[] {
       id: 'st_yamada',
       name: 'Yamada Taro',
       dob: '2017-07-10',
-      levelSystem: 'CEFR',
-      level: 'A2',
+      cefr: 'A1',
+      eiken: '5',
       mode: 'face',
       pastLessons: 5,
       startDate: dayRel(-10),
@@ -882,13 +891,13 @@ function initialStudents(): Student[] {
       startTime: '08:00',
       endTime: '17:00',
     },
-    { id: 'st_kato', name: 'Ken Kato', dob: '1992-11-03', levelSystem: 'CEFR', level: 'B1', mode: 'online', pastLessons: 1 },
+    { id: 'st_kato', name: 'Ken Kato', dob: '1992-11-03', cefr: 'B1', eiken: '2', mode: 'online', pastLessons: 1 },
     {
       id: 'st_sato',
       name: 'Sato Hana',
       dob: '2020-09-01',
-      levelSystem: 'EIKEN',
-      level: '4級',
+      cefr: 'Pre-A1',
+      eiken: 'bronze',
       mode: 'face',
       pastLessons: 3,
       startDate: dayRel(-5),
@@ -897,13 +906,13 @@ function initialStudents(): Student[] {
       endTime: '16:00',
     },
     // 早生まれ（3月生まれ）の例: 誕生年 - 1 の学年度で判定
-    { id: 'st_suzuki', name: 'Suzuki Yui', dob: '2014-03-15', levelSystem: 'EIKEN', level: '3級', mode: 'online', pastLessons: 0 },
+    { id: 'st_suzuki', name: 'Suzuki Yui', dob: '2014-03-15', cefr: 'A2', eiken: '3', mode: 'online', pastLessons: 0 },
     {
       id: 'st_tanaka',
       name: 'Tanaka Ryo',
       dob: '2009-06-20',
-      levelSystem: 'CEFR',
-      level: 'B2',
+      cefr: 'B2',
+      eiken: 'pre1',
       mode: 'face',
       pastLessons: 8,
       startDate: dayRel(0),
@@ -1034,7 +1043,7 @@ interface AppCtx {
   finishVisit: (taskId: string, receipt: Omit<Evidence, 'id' | 'at'>) => void;
   addStudent: (s: Omit<Student, 'id'>) => void;
   removeStudent: (id: string) => void;
-  updateStudent: (id: string, patch: { name: string; dob: string }) => void;
+  updateStudent: (id: string, patch: { name: string; dob: string; cefr: string; eiken: string }) => void;
   /** 対面授業のアサイン。講師が同じ日・同じコマで他の生徒に入っている場合は false（拒否） */
   setLesson: (date: string, studentId: string, slotNo: number, patch: { subjectId?: string | null; teacherId?: string | null }) => boolean;
   /** その日・そのコマで講師が他の生徒を担当中なら、その生徒名 */
@@ -1417,7 +1426,7 @@ export default function CebuSyncApp() {
     setStudents((ss) => [...ss, { ...s, id: uid('st') }]);
     toast(bi(`🎓 Student registered: ${s.name}`, `🎓 学生を登録しました: ${s.name}`), 'ok');
   };
-  const updateStudent = (id: string, patch: { name: string; dob: string }) => {
+  const updateStudent = (id: string, patch: { name: string; dob: string; cefr: string; eiken: string }) => {
     setStudents((ss) => ss.map((s) => (s.id === id ? { ...s, ...patch } : s)));
     const g = gradeTagFromDob(patch.dob);
     toast(bi(`Saved ${patch.name}${g ? ` [${g}]` : ''}`, `${patch.name}${g ? ` [${g}]` : ''} を保存しました`), 'ok');
@@ -1988,6 +1997,68 @@ function GradeBadge({ dob }: { dob: string }) {
     >
       {g}
     </span>
+  );
+}
+
+/** CEFR と英検を並べて表示 */
+function LevelBadges({ cefr, eiken }: { cefr: string; eiken: string }) {
+  const { L, lang } = useApp();
+  return (
+    <span className="inline-flex flex-wrap gap-1">
+      <Badge className={cefr ? 'bg-sky-50 text-sky-700 ring-sky-200' : 'bg-slate-50 text-slate-400 ring-slate-200'}>CEFR {cefr || '—'}</Badge>
+      <Badge className={eiken ? 'bg-rose-50 text-rose-700 ring-rose-200' : 'bg-slate-50 text-slate-400 ring-slate-200'}>
+        {L('EIKEN', '英検')} {eikenName(lang, eiken) || '—'}
+      </Badge>
+    </span>
+  );
+}
+
+/** CEFR・英検の選択欄（登録フォームと一覧の編集で共用） */
+function LevelSelects({
+  cefr,
+  eiken,
+  onCefr,
+  onEiken,
+  idPrefix,
+  compact,
+}: {
+  cefr: string;
+  eiken: string;
+  onCefr: (v: string) => void;
+  onEiken: (v: string) => void;
+  idPrefix: string;
+  compact?: boolean;
+}) {
+  const { L, T } = useApp();
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <div>
+        <label className={labelCls} htmlFor={`${idPrefix}-cefr`}>
+          CEFR
+        </label>
+        <select id={`${idPrefix}-cefr`} className={cx(inputCls, compact && 'py-1')} value={cefr} onChange={(e) => onCefr(e.target.value)}>
+          <option value="">{L('— Not set —', '— 未設定 —')}</option>
+          {CEFR_LEVELS.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className={labelCls} htmlFor={`${idPrefix}-eiken`}>
+          {L('EIKEN', '英検')}
+        </label>
+        <select id={`${idPrefix}-eiken`} className={cx(inputCls, compact && 'py-1')} value={eiken} onChange={(e) => onEiken(e.target.value)}>
+          <option value="">{L('— Not set —', '— 未設定 —')}</option>
+          {EIKEN_LEVELS.map((e) => (
+            <option key={e.id} value={e.id}>
+              {T(e.label)}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
   );
 }
 
@@ -3659,11 +3730,11 @@ function StudentsTab() {
 }
 
 function StudentForm() {
-  const { addStudent, L, lang } = useApp();
+  const { addStudent, L } = useApp();
   const [name, setName] = useState('');
   const [dob, setDob] = useState('');
-  const [levelSystem, setLevelSystem] = useState<Student['levelSystem']>('CEFR');
-  const [level, setLevel] = useState('A1');
+  const [cefr, setCefr] = useState('');
+  const [eiken, setEiken] = useState('');
   const [mode, setMode] = useState<'face' | 'online'>('face');
   const [past, setPast] = useState('0');
   const [startDate, setStartDate] = useState(todayStr());
@@ -3699,14 +3770,16 @@ function StudentForm() {
     addStudent({
       name: name.trim(),
       dob,
-      levelSystem,
-      level,
+      cefr,
+      eiken,
       mode,
       pastLessons: Math.max(0, Number(past) || 0),
       ...(mode === 'face' ? { startDate, endDate, startTime, endTime } : {}),
     });
     setName('');
     setDob('');
+    setCefr('');
+    setEiken('');
     setPast('0');
     setError('');
   };
@@ -3802,33 +3875,10 @@ function StudentForm() {
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className={labelCls}>{L('Level scale', 'レベル指標')}</label>
-            <Segmented
-              value={levelSystem}
-              onChange={(v) => {
-                setLevelSystem(v);
-                setLevel(v === 'CEFR' ? 'A1' : '5級');
-              }}
-              options={[
-                ['CEFR', 'CEFR'],
-                ['EIKEN', L('EIKEN', '英検')],
-              ]}
-            />
-          </div>
-          <div>
-            <label className={labelCls} htmlFor="cebu-st-level">
-              {L('English level', '英語レベル')}
-            </label>
-            <select id="cebu-st-level" className={inputCls} value={level} onChange={(e) => setLevel(e.target.value)}>
-              {(levelSystem === 'CEFR' ? CEFR_LEVELS : EIKEN_LEVELS).map((l) => (
-                <option key={l} value={l}>
-                  {levelName(lang, levelSystem, l)}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className="rounded-xl ring-1 ring-slate-200 p-3 space-y-2">
+          <div className="text-xs font-bold text-slate-600">{L('English level (CEFR and EIKEN)', '英語レベル（CEFR・英検の両方）')}</div>
+          <LevelSelects cefr={cefr} eiken={eiken} onCefr={setCefr} onEiken={setEiken} idPrefix="cebu-st" />
+          <LevelBadges cefr={cefr} eiken={eiken} />
         </div>
         <div>
           <label className={labelCls} htmlFor="cebu-st-past">
@@ -3892,7 +3942,7 @@ function StudentList() {
             <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
               <th className="py-2 pr-3">{L('Name', '氏名')}</th>
               <th className="py-2 pr-3">{L('Date of birth / Grade', '生年月日・学年')}</th>
-              <th className="py-2 pr-3">{L('Level', 'レベル')}</th>
+              <th className="py-2 pr-3">{L('Level (CEFR / EIKEN)', 'レベル（CEFR / 英検）')}</th>
               <th className="py-2 pr-3">{L('Type', '受講タイプ')}</th>
               <th className="py-2 pr-3">{L('In-person period / hours', '対面 受講期間・時間帯')}</th>
               <th className="py-2 pr-3">{L('Lessons', '受講回数')}</th>
@@ -3916,6 +3966,8 @@ function StudentRow({ st: s }: { st: Student }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(s.name);
   const [dob, setDob] = useState(s.dob);
+  const [cefr, setCefr] = useState(s.cefr);
+  const [eiken, setEiken] = useState(s.eiken);
   const done = s.pastLessons + bookings.filter((b) => b.studentId === s.id && b.datetime < `${todayStr()}T00:00`).length;
   const valid = !!name.trim() && !!dob && dob <= todayStr();
   return (
@@ -3947,7 +3999,13 @@ function StudentRow({ st: s }: { st: Student }) {
         )}
       </td>
       <td className="py-2 pr-3">
-        <Badge className="bg-sky-50 text-sky-700 ring-sky-200">{levelText(lang, s)}</Badge>
+        {editing ? (
+          <div className="w-64">
+            <LevelSelects cefr={cefr} eiken={eiken} onCefr={setCefr} onEiken={setEiken} idPrefix={`cebu-edit-${s.id}`} compact />
+          </div>
+        ) : (
+          <LevelBadges cefr={s.cefr} eiken={s.eiken} />
+        )}
       </td>
       <td className="py-2 pr-3 whitespace-nowrap">{s.mode === 'face' ? L('🏫 In person', '🏫 対面') : L('💻 Online', '💻 オンライン')}</td>
       <td className="py-2 pr-3 text-xs text-slate-600 whitespace-nowrap">
@@ -3969,7 +4027,7 @@ function StudentRow({ st: s }: { st: Student }) {
             <button
               disabled={!valid}
               onClick={() => {
-                updateStudent(s.id, { name: name.trim(), dob });
+                updateStudent(s.id, { name: name.trim(), dob, cefr, eiken });
                 setEditing(false);
               }}
               className={cx(btn.green, 'py-1 px-2')}
@@ -3980,6 +4038,8 @@ function StudentRow({ st: s }: { st: Student }) {
               onClick={() => {
                 setName(s.name);
                 setDob(s.dob);
+                setCefr(s.cefr);
+                setEiken(s.eiken);
                 setEditing(false);
               }}
               className={cx(btn.ghost, 'py-1 px-2')}
@@ -4050,7 +4110,7 @@ function Timetable() {
         </div>
         {st && st.mode === 'face' && (
           <div className="text-xs text-slate-500 pb-2 inline-flex flex-wrap items-center gap-1.5">
-            <span className="font-semibold text-slate-700">{st.name}</span> <GradeBadge dob={st.dob} /> · {L('Period', '受講期間')}: {st.startDate ? fmtDate(lang, st.startDate) : '—'} 〜 {st.endDate ? fmtDate(lang, st.endDate) : '—'} · {levelText(lang, st)}
+            <span className="font-semibold text-slate-700">{st.name}</span> <GradeBadge dob={st.dob} /> · {L('Period', '受講期間')}: {st.startDate ? fmtDate(lang, st.startDate) : '—'} 〜 {st.endDate ? fmtDate(lang, st.endDate) : '—'} · <LevelBadges cefr={st.cefr} eiken={st.eiken} />
           </div>
         )}
       </div>
